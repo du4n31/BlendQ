@@ -11,11 +11,12 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { basename, extname, join } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import icon from '../../resources/icon.png?asset'
 import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
 import type { RenderOutputMode, StartLocalRenderRequest } from '../shared/types'
-import { randomUUID } from 'node:crypto'
 import { startLocalRenderJob } from './render/local-render-job'
+import { LocalBlenderWorker } from './render/local-blender-worker'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -240,16 +241,19 @@ app.whenReady().then(() => {
     const renderId = randomUUID()
     const sender = event.sender
 
+    const worker = new LocalBlenderWorker({
+      id: 'local-1',
+      blenderExecutablePath: blender.executablePath
+    })
+
     void startLocalRenderJob({
       renderId,
-      blenderExecutablePath: blender.executablePath,
+      workers: [worker],
       request,
       onEvent: (renderEvent) => {
-        if (sender.isDestroyed()) {
-          return
+        if (!sender.isDestroyed()) {
+          sender.send('render:event', renderEvent)
         }
-
-        sender.send('render:event', renderEvent)
       }
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)

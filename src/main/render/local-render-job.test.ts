@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { RenderEvent, StartLocalRenderRequest } from '../../shared/types'
-
-import { startLocalRender } from '../services/blender'
 import { startLocalRenderJob } from './local-render-job'
+import type { RenderWorker } from './render-worker'
 
-vi.mock('../services/blender', () => ({
-  startLocalRender: vi.fn()
-}))
+const renderFrame = vi.fn<RenderWorker['renderFrame']>()
 
-const mockedStartLocalRender = vi.mocked(startLocalRender)
+const worker: RenderWorker = {
+  id: 'local-1',
+  type: 'local',
+  renderFrame
+}
 
 const request: StartLocalRenderRequest = {
   blendFilePath: 'C:\\Projects\\test.blend',
@@ -27,7 +28,7 @@ describe('startLocalRenderJob', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    mockedStartLocalRender.mockResolvedValue()
+    renderFrame.mockResolvedValue(undefined)
   })
 
   it('renders every frame in the range sequentially', async () => {
@@ -35,18 +36,16 @@ describe('startLocalRenderJob', () => {
 
     await startLocalRenderJob({
       renderId: 'render-1',
-      blenderExecutablePath: 'C:\\Blender\\blender.exe',
+      workers: [worker],
       request,
       onEvent: (event) => {
         events.push(event)
       }
     })
 
-    expect(mockedStartLocalRender).toHaveBeenCalledTimes(3)
+    expect(renderFrame).toHaveBeenCalledTimes(3)
 
-    expect(mockedStartLocalRender.mock.calls.map(([renderRequest]) => renderRequest.frame)).toEqual(
-      [1, 2, 3]
-    )
+    expect(renderFrame.mock.calls.map(([task]) => task.frame)).toEqual([1, 2, 3])
 
     expect(events[0]).toEqual({
       type: 'job-started',
@@ -65,15 +64,14 @@ describe('startLocalRenderJob', () => {
   it('passes the render configuration to every frame', async () => {
     await startLocalRenderJob({
       renderId: 'render-1',
-      blenderExecutablePath: 'C:\\Blender\\blender.exe',
+      workers: [worker],
       request,
       onEvent: () => undefined
     })
 
-    expect(mockedStartLocalRender).toHaveBeenNthCalledWith(
+    expect(renderFrame).toHaveBeenNthCalledWith(
       1,
       {
-        blenderExecutablePath: 'C:\\Blender\\blender.exe',
         blendFilePath: 'C:\\Projects\\test.blend',
         sceneName: 'Scene',
         frame: 1,
@@ -87,18 +85,18 @@ describe('startLocalRenderJob', () => {
   it('reports frame progress', async () => {
     const events: RenderEvent[] = []
 
-    mockedStartLocalRender.mockImplementation(async (_renderRequest, onEvent) => {
+    renderFrame.mockImplementation(async (task, onEvent) => {
       onEvent({
         type: 'frame-completed',
-        scene: 'Scene',
-        frame: 1,
+        scene: task.sceneName,
+        frame: task.frame,
         outputCount: 2
       })
     })
 
     await startLocalRenderJob({
       renderId: 'render-1',
-      blenderExecutablePath: 'C:\\Blender\\blender.exe',
+      workers: [worker],
       request,
       onEvent: (event) => {
         events.push(event)
@@ -141,18 +139,18 @@ describe('startLocalRenderJob', () => {
   it('forwards saved output events with the render ID', async () => {
     const events: RenderEvent[] = []
 
-    mockedStartLocalRender.mockImplementation(async (renderRequest, onEvent) => {
+    renderFrame.mockImplementation(async (task, onEvent) => {
       onEvent({
         type: 'output-saved',
-        scene: renderRequest.sceneName,
-        frame: renderRequest.frame,
-        path: `C:\\Renders\\${renderRequest.frame}.exr`
+        scene: task.sceneName,
+        frame: task.frame,
+        path: `C:\\Renders\\${task.frame}.exr`
       })
     })
 
     await startLocalRenderJob({
       renderId: 'render-1',
-      blenderExecutablePath: 'C:\\Blender\\blender.exe',
+      workers: [worker],
       request,
       onEvent: (event) => {
         events.push(event)
@@ -187,8 +185,10 @@ describe('startLocalRenderJob', () => {
   })
 
   it('stops rendering when a frame fails', async () => {
-    mockedStartLocalRender.mockImplementation(async (renderRequest) => {
-      if (renderRequest.frame === 2) {
+    const events: RenderEvent[] = []
+
+    renderFrame.mockImplementation(async (task) => {
+      if (task.frame === 2) {
         throw new Error('Blender render process failed.')
       }
     })
@@ -196,14 +196,94 @@ describe('startLocalRenderJob', () => {
     await expect(
       startLocalRenderJob({
         renderId: 'render-1',
-        blenderExecutablePath: 'C:\\Blender\\blender.exe',
+        workers: [worker],
         request,
-        onEvent: () => undefined
+        onEvent: (event) => {
+          events.push(event)
+        }
       })
     ).rejects.toThrow('Blender render process failed.')
 
-    expect(mockedStartLocalRender.mock.calls.map(([renderRequest]) => renderRequest.frame)).toEqual(
-      [1, 2]
-    )
+    expect(renderFrame.mock.calls.map(([task]) => task.frame)).toEqual([1, 2])
+
+    expect(events.some((event) => event.type === 'job-completed')).toBe(false)
+  })
+
+  it('renders frames using multiple workers', async () => {
+    const workerAFrames: number[] = []
+    const workerBFrames: number[] = []
+
+    const workerA: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame(task, onEvent) {
+        workerAFrames.push(task.frame)
+
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        onEvent({
+          type: 'frame-completed',
+          scene: task.sceneName,
+          frame: task.frame,
+          outputCount: 1
+        })
+      }
+    }
+
+    const workerB: RenderWorker = {
+      id: 'worker-b',
+      type: 'local',
+
+      async renderFrame(task, onEvent) {
+        workerBFrames.push(task.frame)
+
+        await new Promise((resolve) => setTimeout(resolve, 1))
+
+        onEvent({
+          type: 'frame-completed',
+          scene: task.sceneName,
+          frame: task.frame,
+          outputCount: 1
+        })
+      }
+    }
+
+    const events: RenderEvent[] = []
+
+    await startLocalRenderJob({
+      renderId: 'render-1',
+      workers: [workerA, workerB],
+      request: {
+        ...request,
+        frameRange: {
+          start: 1,
+          end: 6,
+          step: 1
+        }
+      },
+      onEvent: (event) => {
+        events.push(event)
+      }
+    })
+
+    const renderedFrames = [...workerAFrames, ...workerBFrames].sort((a, b) => a - b)
+
+    expect(renderedFrames).toEqual([1, 2, 3, 4, 5, 6])
+
+    expect(workerAFrames.length).toBeGreaterThan(0)
+
+    expect(workerBFrames.length).toBeGreaterThan(0)
+
+    const completedEvents = events.filter((event) => event.type === 'frame-completed')
+
+    expect(completedEvents).toHaveLength(6)
+
+    expect(events.at(-1)).toEqual({
+      type: 'job-completed',
+      renderId: 'render-1',
+      completedFrames: 6,
+      totalFrames: 6
+    })
   })
 })

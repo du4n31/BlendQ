@@ -1,27 +1,37 @@
 import type {
   RenderEvent,
   RenderFrameCompletedEvent,
+  RenderFrameTask,
   StartLocalRenderRequest
 } from '../../shared/types'
-import { startLocalRender } from '../services/blender'
 import { createFrameSequence } from './frame-range'
+import { scheduleRenderTasks } from './render-scheduler'
+import type { RenderWorker } from './render-worker'
 
 interface StartLocalRenderJobOptions {
   renderId: string
-  blenderExecutablePath: string
+  workers: RenderWorker[]
   request: StartLocalRenderRequest
   onEvent: (event: RenderEvent) => void
 }
 
 export async function startLocalRenderJob({
   renderId,
-  blenderExecutablePath,
+  workers,
   request,
   onEvent
 }: StartLocalRenderJobOptions): Promise<void> {
   const frames = createFrameSequence(request.frameRange)
 
-  const totalFrames = frames.length
+  const tasks: RenderFrameTask[] = frames.map((frame) => ({
+    blendFilePath: request.blendFilePath,
+    sceneName: request.sceneName,
+    frame,
+    outputMode: request.outputMode,
+    outputDirectory: request.outputDirectory
+  }))
+
+  const totalFrames = tasks.length
 
   onEvent({
     type: 'job-started',
@@ -31,62 +41,61 @@ export async function startLocalRenderJob({
 
   let completedFrames = 0
 
-  for (const frame of frames) {
-    onEvent({
-      type: 'frame-started',
-      renderId,
-      scene: request.sceneName,
-      frame,
-      completedFrames,
-      totalFrames
-    })
+  const outputCounts = new Map<RenderFrameTask, number>()
 
-    let frameOutputCount = 0
+  await scheduleRenderTasks({
+    tasks,
+    workers,
 
-    await startLocalRender(
-      {
-        blenderExecutablePath,
-        blendFilePath: request.blendFilePath,
-        sceneName: request.sceneName,
-        frame,
-        outputMode: request.outputMode,
-        outputDirectory: request.outputDirectory
-      },
-      (blenderEvent) => {
-        switch (blenderEvent.type) {
-          case 'output-saved':
-            onEvent({
-              ...blenderEvent,
-              renderId
-            })
-            break
+    onTaskStarted: ({ task }) => {
+      onEvent({
+        type: 'frame-started',
+        renderId,
+        scene: task.sceneName,
+        frame: task.frame,
+        completedFrames,
+        totalFrames
+      })
+    },
 
-          case 'frame-completed':
-            frameOutputCount = blenderEvent.outputCount
-            break
+    onWorkerEvent: ({ task, event }) => {
+      switch (event.type) {
+        case 'output-saved':
+          onEvent({
+            ...event,
+            renderId
+          })
+          break
 
-          case 'render-started':
-          case 'render-completed':
-          case 'error':
-            break
-        }
+        case 'frame-completed':
+          outputCounts.set(task, event.outputCount)
+          break
+
+        case 'render-started':
+        case 'render-completed':
+        case 'error':
+          break
       }
-    )
+    },
 
-    completedFrames += 1
+    onTaskCompleted: ({ task }) => {
+      completedFrames += 1
 
-    const frameCompletedEvent: RenderFrameCompletedEvent = {
-      type: 'frame-completed',
-      renderId,
-      scene: request.sceneName,
-      frame,
-      completedFrames,
-      totalFrames,
-      outputCount: frameOutputCount
+      const frameCompletedEvent: RenderFrameCompletedEvent = {
+        type: 'frame-completed',
+        renderId,
+        scene: task.sceneName,
+        frame: task.frame,
+        completedFrames,
+        totalFrames,
+        outputCount: outputCounts.get(task) ?? 0
+      }
+
+      onEvent(frameCompletedEvent)
+
+      outputCounts.delete(task)
     }
-
-    onEvent(frameCompletedEvent)
-  }
+  })
 
   onEvent({
     type: 'job-completed',

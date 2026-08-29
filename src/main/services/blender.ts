@@ -1,52 +1,9 @@
 import { execFile, spawn } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  BlenderInstallation,
-  BlendProjectInfo,
-  RenderFrameRequest,
-  RenderOutputMode
-} from '../../shared/types'
+import type { BlenderInstallation, BlendProjectInfo, RenderFrameRequest } from '../../shared/types'
 import * as z from 'zod'
-
-interface BlenderRenderStartedEvent {
-  type: 'render-started'
-  scene: string
-  frame: number
-  outputMode: RenderOutputMode
-}
-
-interface BlenderRenderOutputSavedEvent {
-  type: 'output-saved'
-  scene: string
-  frame: number
-  path: string
-}
-
-interface BlenderRenderFrameCompletedEvent {
-  type: 'frame-completed'
-  scene: string
-  frame: number
-  outputCount: number
-}
-
-interface BlenderRenderCompletedEvent {
-  type: 'render-completed'
-  scene: string
-  frame: number
-}
-
-interface BlenderRenderErrorEvent {
-  type: 'error'
-  message: string
-}
-
-export type BlenderRenderEvent =
-  | BlenderRenderStartedEvent
-  | BlenderRenderOutputSavedEvent
-  | BlenderRenderFrameCompletedEvent
-  | BlenderRenderCompletedEvent
-  | BlenderRenderErrorEvent
+import type { RenderWorkerEvent } from '../render/render-worker-event'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
@@ -299,7 +256,7 @@ export async function inspectBlendProject(
 
 export async function startLocalRender(
   request: RenderFrameRequest,
-  onEvent: (event: BlenderRenderEvent) => void
+  onEvent: (event: RenderWorkerEvent) => void
 ): Promise<void> {
   const scriptPath = join(process.cwd(), 'src', 'blender', 'render.py')
 
@@ -414,7 +371,7 @@ export async function startLocalRender(
   })
 }
 
-function parseRenderEventLine(line: string): BlenderRenderEvent | null {
+function parseRenderEventLine(line: string): RenderWorkerEvent | null {
   if (!line.startsWith(RENDER_EVENT_PREFIX)) {
     return null
   }
