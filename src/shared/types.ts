@@ -73,8 +73,17 @@ export interface RenderFrameRequest {
   outputDirectory: string
 }
 
+export interface StartLocalRenderRequest {
+  blendFilePath: string
+  sceneName: string
+  frame: number
+  outputMode: RenderOutputMode
+  outputDirectory: string
+}
+
 export interface RenderStartedEvent {
   type: 'render-started'
+  renderId: string
   scene: string
   frame: number
   outputMode: RenderOutputMode
@@ -82,6 +91,7 @@ export interface RenderStartedEvent {
 
 export interface RenderOutputSavedEvent {
   type: 'output-saved'
+  renderId: string
   scene: string
   frame: number
   path: string
@@ -89,6 +99,7 @@ export interface RenderOutputSavedEvent {
 
 export interface RenderFrameCompletedEvent {
   type: 'frame-completed'
+  renderId: string
   scene: string
   frame: number
   outputCount: number
@@ -96,12 +107,14 @@ export interface RenderFrameCompletedEvent {
 
 export interface RenderCompletedEvent {
   type: 'render-completed'
+  renderId: string
   scene: string
   frame: number
 }
 
 export interface RenderErrorEvent {
   type: 'error'
+  renderId: string
   message: string
 }
 

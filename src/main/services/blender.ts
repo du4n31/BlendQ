@@ -4,10 +4,21 @@ import { join } from 'node:path'
 import type {
   BlenderInstallation,
   BlendProjectInfo,
-  RenderEvent,
-  RenderFrameRequest
+  RenderCompletedEvent,
+  RenderErrorEvent,
+  RenderFrameCompletedEvent,
+  RenderFrameRequest,
+  RenderOutputSavedEvent,
+  RenderStartedEvent
 } from '../../shared/types'
 import * as z from 'zod'
+
+type BlenderRenderEvent =
+  | Omit<RenderStartedEvent, 'renderId'>
+  | Omit<RenderOutputSavedEvent, 'renderId'>
+  | Omit<RenderFrameCompletedEvent, 'renderId'>
+  | Omit<RenderCompletedEvent, 'renderId'>
+  | Omit<RenderErrorEvent, 'renderId'>
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
@@ -260,7 +271,7 @@ export async function inspectBlendProject(
 
 export async function startLocalRender(
   request: RenderFrameRequest,
-  onEvent: (event: RenderEvent) => void
+  onEvent: (event: BlenderRenderEvent) => void
 ): Promise<void> {
   const scriptPath = join(process.cwd(), 'src', 'blender', 'render.py')
 
@@ -300,6 +311,7 @@ export async function startLocalRender(
       stdoutBuffer += chunk
 
       const lines = stdoutBuffer.split(/\r?\n/)
+
       stdoutBuffer = lines.pop() ?? ''
 
       for (const line of lines) {
@@ -374,7 +386,7 @@ export async function startLocalRender(
   })
 }
 
-function parseRenderEventLine(line: string): RenderEvent | null {
+function parseRenderEventLine(line: string): BlenderRenderEvent | null {
   if (!line.startsWith(RENDER_EVENT_PREFIX)) {
     return null
   }

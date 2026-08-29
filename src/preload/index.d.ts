@@ -1,9 +1,20 @@
 import type { ElectronAPI } from '@electron-toolkit/preload'
-import type { BlenderInstallation, OpenBlendProjectResult } from '../shared/types'
+
+import type {
+  BlenderInstallation,
+  OpenBlendProjectResult,
+  RenderEvent,
+  StartLocalRenderRequest
+} from '../shared/types'
 
 interface API {
   detectBlender: () => Promise<BlenderInstallation[]>
+
   openBlendProject: () => Promise<OpenBlendProjectResult | null>
+
+  startLocalRender: (request: StartLocalRenderRequest) => Promise<string>
+
+  onRenderEvent: (callback: (event: RenderEvent) => void) => () => void
 }
 
 declare global {

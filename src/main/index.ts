@@ -14,8 +14,11 @@ import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
 import {
   detectBlenderInstallations,
-  inspectBlendProject
+  inspectBlendProject,
+  startLocalRender
 } from './services/blender'
+import type { RenderOutputMode, StartLocalRenderRequest } from '../shared/types'
+import { randomUUID } from 'node:crypto'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -40,8 +43,46 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
   }
 }
 
+async function validateStartLocalRenderRequest(value: unknown): Promise<StartLocalRenderRequest> {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('Invalid local render request.')
+  }
+
+  const request = value as Record<string, unknown>
+
+  const blendFilePath = await validateBlendFilePath(request.blendFilePath)
+
+  if (typeof request.sceneName !== 'string' || request.sceneName.length === 0) {
+    throw new Error('Invalid render scene name.')
+  }
+
+  if (typeof request.frame !== 'number' || !Number.isSafeInteger(request.frame)) {
+    throw new Error('Invalid render frame.')
+  }
+
+  if (typeof request.outputDirectory !== 'string' || request.outputDirectory.length === 0) {
+    throw new Error('Invalid render output directory.')
+  }
+
+  return {
+    blendFilePath,
+    sceneName: request.sceneName,
+    frame: request.frame,
+    outputMode: validateRenderOutputMode(request.outputMode),
+    outputDirectory: request.outputDirectory
+  }
+}
+
+function validateRenderOutputMode(value: unknown): RenderOutputMode {
+  if (value !== 'scene-output' && value !== 'compositor-file-outputs') {
+    throw new Error('Invalid render output mode.')
+  }
+
+  return value
+}
+
 async function validateBlendFilePath(value: unknown): Promise<string> {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== 'string') {
     throw new Error('Invalid Blender project path.')
   }
 
@@ -49,16 +90,10 @@ async function validateBlendFilePath(value: unknown): Promise<string> {
     throw new Error('The selected file is not a Blender project.')
   }
 
-  let fileStats
-
-  try {
-    fileStats = await stat(value)
-  } catch {
-    throw new Error('The Blender project file does not exist or cannot be accessed.')
-  }
+  const fileStats = await stat(value)
 
   if (!fileStats.isFile()) {
-    throw new Error('The Blender project path does not point to a file.')
+    throw new Error('The selected Blender project is not a file.')
   }
 
   return value
@@ -146,6 +181,40 @@ app.whenReady().then(() => {
       },
       info
     }
+
+    ipcMain.handle('render:start-local', async (event, value: unknown) => {
+      assertTrustedSender(event)
+
+      const request = await validateStartLocalRenderRequest(value)
+
+      const installations = await detectBlenderInstallations()
+
+      if (installations.length === 0) {
+        throw new Error('No compatible Blender installation was found.')
+      }
+
+      const blender = installations[0]
+      const renderId = randomUUID()
+
+      await startLocalRender(
+        {
+          ...request,
+          blenderExecutablePath: blender.executablePath
+        },
+        (renderEvent) => {
+          if (event.sender.isDestroyed()) {
+            return
+          }
+
+          event.sender.send('render:event', {
+            ...renderEvent,
+            renderId
+          })
+        }
+      )
+
+      return renderId
+    })
   })
 
   createWindow()
@@ -154,6 +223,40 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
     }
+  })
+
+  ipcMain.handle('render:start-local', async (event, value: unknown) => {
+    assertTrustedSender(event)
+
+    const request = await validateStartLocalRenderRequest(value)
+
+    const installations = await detectBlenderInstallations()
+
+    if (installations.length === 0) {
+      throw new Error('No compatible Blender installation was found.')
+    }
+
+    const blender = installations[0]
+    const renderId = randomUUID()
+
+    await startLocalRender(
+      {
+        ...request,
+        blenderExecutablePath: blender.executablePath
+      },
+      (renderEvent) => {
+        if (event.sender.isDestroyed()) {
+          return
+        }
+
+        event.sender.send('render:event', {
+          ...renderEvent,
+          renderId
+        })
+      }
+    )
+
+    return renderId
   })
 })
 
