@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { detectBlenderInstallations } from './services/blender'
+import { stat } from 'node:fs/promises'
 
 function createWindow(): void {
   // Create the browser window.
@@ -55,6 +56,40 @@ app.whenReady().then(() => {
 
   ipcMain.handle('blender:detect', async () => {
     return detectBlenderInstallations()
+  })
+
+  ipcMain.handle('project:select-file', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Select Blender Project',
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Blender Projects',
+          extensions: ['blend']
+        }
+      ]
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    const filePath = result.filePaths[0]
+
+    if (extname(filePath).toLowerCase() !== '.blend') {
+      throw new Error('The selected file is not a Blender project.')
+    }
+
+    const fileStats = await stat(filePath)
+
+    if (!fileStats.isFile()) {
+      throw new Error('The selected path is not a file.')
+    }
+
+    return {
+      name: basename(filePath),
+      path: filePath
+    }
   })
 
   createWindow()

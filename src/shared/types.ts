@@ -6,3 +6,8 @@ export interface BlenderInstallation {
   patch: number
   isLts: boolean
 }
+
+export interface BlendProjectFile {
+  name: string
+  path: string
+}

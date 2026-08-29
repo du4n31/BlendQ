@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { BlenderInstallation } from '../../shared/types'
+import type { BlenderInstallation, BlendProjectFile } from '../../shared/types'
 
 function App(): React.JSX.Element {
   const [installations, setInstallations] = useState<BlenderInstallation[]>([])
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
+  const [selectedProject, setSelectedProject] = useState<BlendProjectFile | null>(null)
 
   async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
     return window.api.detectBlender()
@@ -25,6 +26,20 @@ function App(): React.JSX.Element {
       setInstallations([])
       setStatus('error')
       setErrorMessage('Blender could not be detected.')
+    }
+  }
+
+  async function selectProject(): Promise<void> {
+    try {
+      const project = await window.api.selectBlendFile()
+
+      if (project === null) {
+        return
+      }
+
+      setSelectedProject(project)
+    } catch (error) {
+      console.error('Failed to select Blender project.', error)
     }
   }
 
@@ -91,6 +106,21 @@ function App(): React.JSX.Element {
       )}
 
       {status === 'error' && <p>{errorMessage}</p>}
+
+      <section>
+        <h2>Project</h2>
+
+        <button onClick={selectProject}>Select Blender Project</button>
+
+        {selectedProject === null ? (
+          <p>No project selected.</p>
+        ) : (
+          <div>
+            <strong>{selectedProject.name}</strong>
+            <p>{selectedProject.path}</p>
+          </div>
+        )}
+      </section>
     </main>
   )
 }
