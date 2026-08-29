@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { basename, extname, join } from 'node:path'
-import { detectBlenderInstallations } from './services/blender'
+import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
 import { stat } from 'node:fs/promises'
 
 function createWindow(): void {
@@ -91,6 +91,13 @@ app.whenReady().then(() => {
       path: filePath
     }
   })
+
+  ipcMain.handle(
+    'blender:inspect-test',
+    async (_event, blenderExecutablePath: string, blendFilePath: string) => {
+      return inspectBlendProject(blenderExecutablePath, blendFilePath)
+    }
+  )
 
   createWindow()
 

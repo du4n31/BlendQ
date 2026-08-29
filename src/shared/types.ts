@@ -11,3 +11,15 @@ export interface BlendProjectFile {
   name: string
   path: string
 }
+
+export interface BlendSceneInfo {
+  name: string
+  frameStart: number
+  frameEnd: number
+  frameStep: number
+}
+
+export interface BlendProjectInfo {
+  filePath: string
+  scenes: BlendSceneInfo[]
+}

@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { BlenderInstallation } from '../../shared/types'
+import type { BlenderInstallation, BlendProjectInfo } from '../../shared/types'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
-
+const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
 interface ParsedBlenderVersion {
   version: string
   major: number
@@ -70,18 +70,28 @@ export async function detectBlenderInstallations(): Promise<BlenderInstallation[
   return installations
 }
 
-function getBlenderVersion(executablePath: string): Promise<string> {
+function executeBlender(executablePath: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(executablePath, ['--version'], (error, stdout) => {
+    execFile(executablePath, args, (error, stdout, stderr) => {
       if (error) {
+        console.error('Blender process failed.', {
+          executablePath,
+          args,
+          stderr
+        })
+
         reject(error)
         return
       }
 
-      const firstLine = stdout.split(/\r?\n/)[0]
-      resolve(firstLine)
+      resolve(stdout)
     })
   })
+}
+
+async function getBlenderVersion(executablePath: string): Promise<string> {
+  const stdout = await executeBlender(executablePath, ['--version'])
+  return stdout.split(/\r?\n/)[0]
 }
 
 function parseBlenderVersion(version: string): ParsedBlenderVersion | null {
@@ -102,4 +112,38 @@ function parseBlenderVersion(version: string): ParsedBlenderVersion | null {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
+}
+
+export async function inspectBlendProject(
+  blenderExecutablePath: string,
+  blendFilePath: string
+): Promise<BlendProjectInfo> {
+  const scriptPath = join(process.cwd(), 'src', 'blender', 'inspect_project.py')
+
+  const stdout = await executeBlender(blenderExecutablePath, [
+    '--background',
+    '--disable-autoexec',
+    blendFilePath,
+    '--python',
+    scriptPath,
+    '--python-exit-code',
+    '1'
+  ])
+
+  const resultLine = stdout.split(/\r?\n/).find((line) => line.startsWith(INSPECTION_RESULT_PREFIX))
+
+  if (!resultLine) {
+    throw new Error('Blender did not return a project inspection result.')
+  }
+
+  const json = resultLine.slice(INSPECTION_RESULT_PREFIX.length)
+
+  const result = JSON.parse(json) as {
+    scenes: BlendProjectInfo['scenes']
+  }
+
+  return {
+    filePath: blendFilePath,
+    scenes: result.scenes
+  }
 }
