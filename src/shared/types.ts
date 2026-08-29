@@ -23,3 +23,8 @@ export interface BlendProjectInfo {
   filePath: string
   scenes: BlendSceneInfo[]
 }
+
+export interface OpenBlendProjectResult {
+  file: BlendProjectFile
+  info: BlendProjectInfo
+}

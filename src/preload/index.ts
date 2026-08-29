@@ -1,18 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { BlenderInstallation, BlendProjectFile, BlendProjectInfo } from '../shared/types'
+import type { BlenderInstallation, OpenBlendProjectResult } from '../shared/types'
 
 const api = {
   detectBlender: (): Promise<BlenderInstallation[]> => {
     return ipcRenderer.invoke('blender:detect')
   },
 
-  selectBlendFile: (): Promise<BlendProjectFile | null> => {
-    return ipcRenderer.invoke('project:select-file')
-  },
-
-  inspectBlendProject: (blendFilePath: string): Promise<BlendProjectInfo> => {
-    return ipcRenderer.invoke('blender:inspect-project', blendFilePath)
+  openBlendProject: (): Promise<OpenBlendProjectResult | null> => {
+    return ipcRenderer.invoke('project:open')
   }
 }
 

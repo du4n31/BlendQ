@@ -1,10 +1,9 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
-import type { BlenderInstallation, BlendProjectFile } from '../shared/types'
+import type { ElectronAPI } from '@electron-toolkit/preload'
+import type { BlenderInstallation, OpenBlendProjectResult } from '../shared/types'
 
 interface API {
   detectBlender: () => Promise<BlenderInstallation[]>
-  selectBlendFile: () => Promise<BlendProjectFile | null>
-  inspectBlendProject: (blendFilePath: string) => Promise<BlendProjectInfo>
+  openBlendProject: () => Promise<OpenBlendProjectResult | null>
 }
 
 declare global {
