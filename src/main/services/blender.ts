@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BlenderInstallation, BlendProjectInfo } from '../../shared/types'
+import * as z from 'zod'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
@@ -12,6 +13,17 @@ interface ParsedBlenderVersion {
   patch: number
   isLts: boolean
 }
+
+const blendSceneInfoSchema = z.object({
+  name: z.string(),
+  frameStart: z.number().int(),
+  frameEnd: z.number().int(),
+  frameStep: z.number().int().positive()
+})
+
+const blendInspectionResultSchema = z.object({
+  scenes: z.array(blendSceneInfoSchema)
+})
 
 export async function detectBlenderInstallations(): Promise<BlenderInstallation[]> {
   const blenderFoundationPath = 'C:\\Program Files\\Blender Foundation'
@@ -138,12 +150,26 @@ export async function inspectBlendProject(
 
   const json = resultLine.slice(INSPECTION_RESULT_PREFIX.length)
 
-  const result = JSON.parse(json) as {
-    scenes: BlendProjectInfo['scenes']
+  let data: unknown
+
+  try {
+    data = JSON.parse(json)
+  } catch (error) {
+    console.error('Failed to parse Blender inspection result as JSON.', error)
+
+    throw new Error('Blender returned an invalid project inspection result.')
+  }
+
+  const result = blendInspectionResultSchema.safeParse(data)
+
+  if (!result.success) {
+    console.error('Blender returned an unexpected project inspection result.', result.error)
+
+    throw new Error('Blender returned an invalid project inspection result.')
   }
 
   return {
     filePath: blendFilePath,
-    scenes: result.scenes
+    scenes: result.data.scenes
   }
 }

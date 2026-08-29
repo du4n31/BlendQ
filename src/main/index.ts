@@ -4,6 +4,55 @@ import icon from '../../resources/icon.png?asset'
 import { basename, extname, join } from 'node:path'
 import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
 import { stat } from 'node:fs/promises'
+import type { IpcMainInvokeEvent, WebFrameMain } from 'electron'
+import { pathToFileURL } from 'node:url'
+
+function isTrustedSender(frame: WebFrameMain | null): boolean {
+  if (!frame) {
+    return false
+  }
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    const senderUrl = new URL(frame.url)
+    const rendererUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+
+    return senderUrl.origin === rendererUrl.origin
+  }
+
+  const rendererUrl = pathToFileURL(join(__dirname, '../renderer/index.html'))
+
+  return frame.url === rendererUrl.href
+}
+
+function assertTrustedSender(event: IpcMainInvokeEvent): void {
+  if (!isTrustedSender(event.senderFrame)) {
+    throw new Error('Blocked IPC request from an untrusted sender.')
+  }
+}
+
+async function validateBlendFilePath(value: unknown): Promise<string> {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('Invalid Blender project path.')
+  }
+
+  if (extname(value).toLowerCase() !== '.blend') {
+    throw new Error('The selected file is not a Blender project.')
+  }
+
+  let fileStats
+
+  try {
+    fileStats = await stat(value)
+  } catch {
+    throw new Error('The Blender project file does not exist or cannot be accessed.')
+  }
+
+  if (!fileStats.isFile()) {
+    throw new Error('The Blender project path does not point to a file.')
+  }
+
+  return value
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -54,11 +103,15 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  ipcMain.handle('blender:detect', async () => {
+  ipcMain.handle('blender:detect', async (event) => {
+    assertTrustedSender(event)
+
     return detectBlenderInstallations()
   })
 
-  ipcMain.handle('project:select-file', async () => {
+  ipcMain.handle('project:select-file', async (event) => {
+    assertTrustedSender(event)
+
     const result = await dialog.showOpenDialog({
       title: 'Select Blender Project',
       properties: ['openFile'],
@@ -92,7 +145,11 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('blender:inspect-project', async (_event, blendFilePath: string) => {
+  ipcMain.handle('blender:inspect-project', async (event, blendFilePath: unknown) => {
+    assertTrustedSender(event)
+
+    const validatedBlendFilePath = await validateBlendFilePath(blendFilePath)
+
     const installations = await detectBlenderInstallations()
 
     if (installations.length === 0) {
@@ -101,7 +158,7 @@ app.whenReady().then(() => {
 
     const blender = installations[0]
 
-    return inspectBlendProject(blender.executablePath, blendFilePath)
+    return inspectBlendProject(blender.executablePath, validatedBlendFilePath)
   })
 
   createWindow()
