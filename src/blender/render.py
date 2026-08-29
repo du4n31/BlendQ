@@ -19,12 +19,16 @@ def main() -> None:
         scene_name = _require_arg(args, "scene")
         frame = int(_require_arg(args, "frame"))
         output_mode = _require_arg(args, "output-mode")
-        output_dir = Path(_require_arg(args, "output-dir")).resolve()
+        output_dir = Path(
+            _require_arg(args, "output-dir")
+        ).resolve()
 
         scene = bpy.data.scenes.get(scene_name)
 
         if scene is None:
-            raise ValueError(f'Scene "{scene_name}" does not exist.')
+            raise ValueError(
+                f'Scene "{scene_name}" does not exist.'
+            )
 
         if output_mode not in {
             OUTPUT_MODE_SCENE,
@@ -34,7 +38,10 @@ def main() -> None:
                 f'Unsupported output mode "{output_mode}".'
             )
 
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         scene.frame_set(frame)
 
@@ -54,27 +61,43 @@ def main() -> None:
                 output_dir=output_dir,
             )
 
-            output_search_roots = [output_dir]
+            output_search_roots = [
+                output_dir
+            ]
         else:
-            output_search_roots = _configure_compositor_outputs(
-                scene=scene,
-                output_dir=output_dir,
+            output_search_roots = (
+                _configure_compositor_outputs(
+                    scene=scene,
+                    output_dir=output_dir,
+                )
             )
 
-        files_before_render = _snapshot_files(
-            output_search_roots
+        files_before_render = (
+            _snapshot_frame_files(
+                search_roots=
+                    output_search_roots,
+                frame=frame,
+            )
         )
 
         bpy.context.window.scene = scene
 
         bpy.ops.render.render(
-            write_still=output_mode == OUTPUT_MODE_SCENE,
+            write_still=(
+                output_mode
+                == OUTPUT_MODE_SCENE
+            ),
             scene=scene.name,
         )
 
-        output_files = _find_changed_output_files(
-            search_roots=output_search_roots,
-            files_before=files_before_render,
+        output_files = (
+            _find_changed_frame_files(
+                search_roots=
+                    output_search_roots,
+                frame=frame,
+                files_before=
+                    files_before_render,
+            )
         )
 
         for output_file in output_files:
@@ -83,7 +106,9 @@ def main() -> None:
                     "type": "output-saved",
                     "scene": scene.name,
                     "frame": frame,
-                    "path": str(output_file),
+                    "path": str(
+                        output_file
+                    ),
                 }
             )
 
@@ -92,7 +117,9 @@ def main() -> None:
                 "type": "frame-completed",
                 "scene": scene.name,
                 "frame": frame,
-                "outputCount": len(output_files),
+                "outputCount": len(
+                    output_files
+                ),
             }
         )
 
@@ -124,7 +151,8 @@ def _configure_scene_output(
     scene.render.use_file_extension = True
 
     scene.render.filepath = str(
-        output_dir / f"scene_output_{frame:06d}"
+        output_dir
+        / f"scene_output_{frame:06d}"
     )
 
 
@@ -142,7 +170,8 @@ def _configure_compositor_outputs(
 
     if node_tree is None:
         raise RuntimeError(
-            "The selected scene does not have a compositor node tree."
+            "The selected scene does not "
+            "have a compositor node tree."
         )
 
     file_output_nodes = [
@@ -153,19 +182,26 @@ def _configure_compositor_outputs(
 
     if not file_output_nodes:
         raise RuntimeError(
-            "The selected scene does not contain any File Output nodes."
+            "The selected scene does not "
+            "contain any File Output nodes."
         )
 
     output_directories: list[Path] = []
 
-    for index, node in enumerate(file_output_nodes):
-        node_output_dir = _configure_file_output_node(
-            node=node,
-            index=index,
-            output_dir=output_dir,
+    for index, node in enumerate(
+        file_output_nodes
+    ):
+        node_output_dir = (
+            _configure_file_output_node(
+                node=node,
+                index=index,
+                output_dir=output_dir,
+            )
         )
 
-        output_directories.append(node_output_dir)
+        output_directories.append(
+            node_output_dir
+        )
 
     return output_directories
 
@@ -175,11 +211,16 @@ def _configure_file_output_node(
     index: int,
     output_dir: Path,
 ) -> Path:
-    safe_node_name = _safe_name(node.name)
+    safe_node_name = _safe_name(
+        node.name
+    )
 
     node_output_dir = (
         output_dir
-        / f"{index + 1:02d}_{safe_node_name}"
+        / (
+            f"{index + 1:02d}_"
+            f"{safe_node_name}"
+        )
     )
 
     node_output_dir.mkdir(
@@ -187,7 +228,9 @@ def _configure_file_output_node(
         exist_ok=True,
     )
 
-    node.directory = str(node_output_dir)
+    node.directory = str(
+        node_output_dir
+    )
 
     file_format = getattr(
         node.format,
@@ -196,26 +239,35 @@ def _configure_file_output_node(
     )
 
     is_multilayer = (
-        file_format == "OPEN_EXR_MULTILAYER"
+        file_format
+        == "OPEN_EXR_MULTILAYER"
     )
 
     if is_multilayer:
-        # In multilayer EXR, file_output_items are layer names
-        # inside one physical EXR file. Do not modify them.
+        # In multilayer EXR,
+        # file_output_items are layer
+        # names inside one physical EXR
+        # file. Do not modify them.
         node.file_name = (
             f"{safe_node_name}_######"
         )
 
         return node_output_dir
 
-    # For regular File Output nodes each item may produce
-    # its own physical file.
+    # For regular File Output nodes,
+    # each item may produce its own
+    # physical file.
     node.file_name = ""
 
     for item in node.file_output_items:
-        clean_name = item.name.rstrip("_")
+        clean_name = (
+            item.name.rstrip("_")
+        )
 
-        if not re.search(r"#+", clean_name):
+        if not re.search(
+            r"#+",
+            clean_name,
+        ):
             clean_name += "_######"
 
         item.name = clean_name
@@ -223,10 +275,16 @@ def _configure_file_output_node(
     return node_output_dir
 
 
-def _snapshot_files(
+def _snapshot_frame_files(
     search_roots: list[Path],
+    frame: int,
 ) -> dict[Path, tuple[int, int]]:
-    snapshot: dict[Path, tuple[int, int]] = {}
+    snapshot: dict[
+        Path,
+        tuple[int, int],
+    ] = {}
+
+    frame_marker = f"{frame:06d}"
 
     for root in search_roots:
         if not root.exists():
@@ -236,8 +294,13 @@ def _snapshot_files(
             if not path.is_file():
                 continue
 
+            if frame_marker not in path.name:
+                continue
+
             resolved_path = path.resolve()
-            file_stat = resolved_path.stat()
+            file_stat = (
+                resolved_path.stat()
+            )
 
             snapshot[resolved_path] = (
                 file_stat.st_size,
@@ -247,18 +310,30 @@ def _snapshot_files(
     return snapshot
 
 
-def _find_changed_output_files(
+def _find_changed_frame_files(
     search_roots: list[Path],
-    files_before: dict[Path, tuple[int, int]],
+    frame: int,
+    files_before: dict[
+        Path,
+        tuple[int, int],
+    ],
 ) -> list[Path]:
-    files_after = _snapshot_files(
-        search_roots
+    files_after = (
+        _snapshot_frame_files(
+            search_roots=
+                search_roots,
+            frame=frame,
+        )
     )
 
     changed_files = [
         path
-        for path, fingerprint in files_after.items()
-        if files_before.get(path) != fingerprint
+        for path, fingerprint
+        in files_after.items()
+        if (
+            files_before.get(path)
+            != fingerprint
+        )
     ]
 
     return sorted(changed_files)
@@ -280,7 +355,9 @@ def _parse_args(
     argv: list[str],
 ) -> dict[str, str]:
     try:
-        separator_index = argv.index("--")
+        separator_index = argv.index(
+            "--"
+        )
     except ValueError:
         return {}
 
@@ -297,12 +374,15 @@ def _parse_args(
 
         if (
             not key.startswith("--")
-            or index + 1 >= len(custom_args)
+            or index + 1
+            >= len(custom_args)
         ):
             index += 1
             continue
 
-        result[key[2:]] = custom_args[index + 1]
+        result[key[2:]] = (
+            custom_args[index + 1]
+        )
 
         index += 2
 
@@ -317,7 +397,8 @@ def _require_arg(
 
     if value is None or not value:
         raise ValueError(
-            f'Missing required argument "--{name}".'
+            f'Missing required argument '
+            f'"--{name}".'
         )
 
     return value
