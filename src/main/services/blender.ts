@@ -6,6 +6,7 @@ import * as z from 'zod'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
+
 interface ParsedBlenderVersion {
   version: string
   major: number
@@ -14,14 +15,47 @@ interface ParsedBlenderVersion {
   isLts: boolean
 }
 
+const compositorFileOutputItemSchema = z.object({
+  name: z.string()
+})
+
+const compositorFileOutputSchema = z.object({
+  name: z.string(),
+  directory: z.string(),
+  fileName: z.string(),
+  fileFormat: z.string(),
+  isMultilayer: z.boolean(),
+  items: z.array(compositorFileOutputItemSchema)
+})
+
 const blendSceneInfoSchema = z.object({
   name: z.string(),
+
   frameStart: z.number().int(),
   frameEnd: z.number().int(),
-  frameStep: z.number().int().positive()
+  frameStep: z.number().int().positive(),
+
+  renderEngine: z.string(),
+
+  resolution: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    percentage: z.number().int().positive()
+  }),
+
+  sceneOutput: z.object({
+    filepath: z.string(),
+    fileFormat: z.string()
+  }),
+
+  compositor: z.object({
+    enabled: z.boolean(),
+    fileOutputs: z.array(compositorFileOutputSchema)
+  })
 })
 
 const blendInspectionResultSchema = z.object({
+  blenderVersion: z.string(),
   scenes: z.array(blendSceneInfoSchema)
 })
 
@@ -84,20 +118,28 @@ export async function detectBlenderInstallations(): Promise<BlenderInstallation[
 
 function executeBlender(executablePath: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(executablePath, args, (error, stdout, stderr) => {
-      if (error) {
-        console.error('Blender process failed.', {
-          executablePath,
-          args,
-          stderr
-        })
+    execFile(
+      executablePath,
+      args,
+      {
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error('Blender process failed.', {
+            executablePath,
+            stderr,
+            error
+          })
 
-        reject(error)
-        return
+          reject(error)
+          return
+        }
+
+        resolve(stdout)
       }
-
-      resolve(stdout)
-    })
+    )
   })
 }
 
@@ -170,6 +212,7 @@ export async function inspectBlendProject(
 
   return {
     filePath: blendFilePath,
+    blenderVersion: result.data.blenderVersion,
     scenes: result.data.scenes
   }
 }

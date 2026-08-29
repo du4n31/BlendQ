@@ -12,15 +12,48 @@ export interface BlendProjectFile {
   path: string
 }
 
+export interface CompositorFileOutputItem {
+  name: string
+}
+
+export interface CompositorFileOutput {
+  name: string
+  directory: string
+  fileName: string
+  fileFormat: string
+  isMultilayer: boolean
+  items: CompositorFileOutputItem[]
+}
+
 export interface BlendSceneInfo {
   name: string
+
   frameStart: number
   frameEnd: number
   frameStep: number
+
+  renderEngine: string
+
+  resolution: {
+    width: number
+    height: number
+    percentage: number
+  }
+
+  sceneOutput: {
+    filepath: string
+    fileFormat: string
+  }
+
+  compositor: {
+    enabled: boolean
+    fileOutputs: CompositorFileOutput[]
+  }
 }
 
 export interface BlendProjectInfo {
   filePath: string
+  blenderVersion: string
   scenes: BlendSceneInfo[]
 }
 

@@ -17,3 +17,9 @@ secrets/
 *.blend1
 
 .eslintcache
+
+# Local render test output
+render-test/
+
+# Blender render output
+*.exr
