@@ -61,3 +61,53 @@ export interface OpenBlendProjectResult {
   file: BlendProjectFile
   info: BlendProjectInfo
 }
+
+export type RenderOutputMode = 'scene-output' | 'compositor-file-outputs'
+
+export interface RenderFrameRequest {
+  blendFilePath: string
+  blenderExecutablePath: string
+  sceneName: string
+  frame: number
+  outputMode: RenderOutputMode
+  outputDirectory: string
+}
+
+export interface RenderStartedEvent {
+  type: 'render-started'
+  scene: string
+  frame: number
+  outputMode: RenderOutputMode
+}
+
+export interface RenderOutputSavedEvent {
+  type: 'output-saved'
+  scene: string
+  frame: number
+  path: string
+}
+
+export interface RenderFrameCompletedEvent {
+  type: 'frame-completed'
+  scene: string
+  frame: number
+  outputCount: number
+}
+
+export interface RenderCompletedEvent {
+  type: 'render-completed'
+  scene: string
+  frame: number
+}
+
+export interface RenderErrorEvent {
+  type: 'error'
+  message: string
+}
+
+export type RenderEvent =
+  | RenderStartedEvent
+  | RenderOutputSavedEvent
+  | RenderFrameCompletedEvent
+  | RenderCompletedEvent
+  | RenderErrorEvent

@@ -1,12 +1,17 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { BlenderInstallation, BlendProjectInfo } from '../../shared/types'
+import type {
+  BlenderInstallation,
+  BlendProjectInfo,
+  RenderEvent,
+  RenderFrameRequest
+} from '../../shared/types'
 import * as z from 'zod'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='
-
+const RENDER_EVENT_PREFIX = 'BLENDQ:'
 interface ParsedBlenderVersion {
   version: string
   major: number
@@ -58,6 +63,42 @@ const blendInspectionResultSchema = z.object({
   blenderVersion: z.string(),
   scenes: z.array(blendSceneInfoSchema)
 })
+
+const renderOutputModeSchema = z.enum(['scene-output', 'compositor-file-outputs'])
+
+const renderEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('render-started'),
+    scene: z.string(),
+    frame: z.number().int(),
+    outputMode: renderOutputModeSchema
+  }),
+
+  z.object({
+    type: z.literal('output-saved'),
+    scene: z.string(),
+    frame: z.number().int(),
+    path: z.string()
+  }),
+
+  z.object({
+    type: z.literal('frame-completed'),
+    scene: z.string(),
+    frame: z.number().int(),
+    outputCount: z.number().int().nonnegative()
+  }),
+
+  z.object({
+    type: z.literal('render-completed'),
+    scene: z.string(),
+    frame: z.number().int()
+  }),
+
+  z.object({
+    type: z.literal('error'),
+    message: z.string()
+  })
+])
 
 export async function detectBlenderInstallations(): Promise<BlenderInstallation[]> {
   const blenderFoundationPath = 'C:\\Program Files\\Blender Foundation'
@@ -215,4 +256,159 @@ export async function inspectBlendProject(
     blenderVersion: result.data.blenderVersion,
     scenes: result.data.scenes
   }
+}
+
+export async function startLocalRender(
+  request: RenderFrameRequest,
+  onEvent: (event: RenderEvent) => void
+): Promise<void> {
+  const scriptPath = join(process.cwd(), 'src', 'blender', 'render.py')
+
+  const args = [
+    '--background',
+    '--disable-autoexec',
+    request.blendFilePath,
+    '--python',
+    scriptPath,
+    '--python-exit-code',
+    '1',
+    '--',
+    '--scene',
+    request.sceneName,
+    '--frame',
+    String(request.frame),
+    '--output-mode',
+    request.outputMode,
+    '--output-dir',
+    request.outputDirectory
+  ]
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(request.blenderExecutablePath, args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdoutBuffer = ''
+    let stderrBuffer = ''
+    let protocolError: Error | null = null
+
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+
+    child.stdout.on('data', (chunk: string) => {
+      stdoutBuffer += chunk
+
+      const lines = stdoutBuffer.split(/\r?\n/)
+      stdoutBuffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        try {
+          const event = parseRenderEventLine(line)
+
+          if (event) {
+            onEvent(event)
+          }
+        } catch (error) {
+          protocolError = normalizeError(error)
+
+          console.error('Failed to process Blender render protocol event.', protocolError)
+
+          child.kill()
+          break
+        }
+      }
+    })
+
+    child.stderr.on('data', (chunk: string) => {
+      stderrBuffer += chunk
+
+      const maxStderrLength = 64 * 1024
+
+      if (stderrBuffer.length > maxStderrLength) {
+        stderrBuffer = stderrBuffer.slice(-maxStderrLength)
+      }
+    })
+
+    child.on('error', (error) => {
+      console.error('Failed to start Blender render process.', {
+        executablePath: request.blenderExecutablePath,
+        error
+      })
+
+      reject(error)
+    })
+
+    child.on('close', (code, signal) => {
+      if (stdoutBuffer) {
+        try {
+          const event = parseRenderEventLine(stdoutBuffer)
+
+          if (event) {
+            onEvent(event)
+          }
+        } catch (error) {
+          protocolError ??= normalizeError(error)
+        }
+      }
+
+      if (protocolError) {
+        reject(protocolError)
+        return
+      }
+
+      if (code !== 0) {
+        console.error('Blender render process exited unsuccessfully.', {
+          code,
+          signal,
+          stderr: stderrBuffer
+        })
+
+        reject(new Error(`Blender render process exited with code ${code ?? 'unknown'}.`))
+
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+function parseRenderEventLine(line: string): RenderEvent | null {
+  if (!line.startsWith(RENDER_EVENT_PREFIX)) {
+    return null
+  }
+
+  const json = line.slice(RENDER_EVENT_PREFIX.length)
+
+  let data: unknown
+
+  try {
+    data = JSON.parse(json)
+  } catch (error) {
+    console.error('Failed to parse Blender render event as JSON.', {
+      line,
+      error
+    })
+
+    throw new Error('Blender returned an invalid render event.')
+  }
+
+  const result = renderEventSchema.safeParse(data)
+
+  if (!result.success) {
+    console.error('Blender returned an unexpected render event.', result.error)
+
+    throw new Error('Blender returned an invalid render event.')
+  }
+
+  return result.data
+}
+
+function normalizeError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error
+  }
+
+  return new Error(String(error))
 }

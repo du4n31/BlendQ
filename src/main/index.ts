@@ -12,7 +12,10 @@ import { basename, extname, join } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
-import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
+import {
+  detectBlenderInstallations,
+  inspectBlendProject
+} from './services/blender'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
