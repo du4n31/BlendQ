@@ -64,29 +64,45 @@ export interface OpenBlendProjectResult {
 
 export type RenderOutputMode = 'scene-output' | 'compositor-file-outputs'
 
-export interface RenderFrameRequest {
+export interface FrameRange {
+  start: number
+  end: number
+  step: number
+}
+
+export interface RenderFrameTask {
   blendFilePath: string
-  blenderExecutablePath: string
   sceneName: string
   frame: number
   outputMode: RenderOutputMode
   outputDirectory: string
+}
+
+export interface RenderFrameRequest extends RenderFrameTask {
+  blenderExecutablePath: string
 }
 
 export interface StartLocalRenderRequest {
   blendFilePath: string
   sceneName: string
-  frame: number
+  frameRange: FrameRange
   outputMode: RenderOutputMode
   outputDirectory: string
 }
 
-export interface RenderStartedEvent {
-  type: 'render-started'
+export interface RenderJobStartedEvent {
+  type: 'job-started'
+  renderId: string
+  totalFrames: number
+}
+
+export interface RenderFrameStartedEvent {
+  type: 'frame-started'
   renderId: string
   scene: string
   frame: number
-  outputMode: RenderOutputMode
+  completedFrames: number
+  totalFrames: number
 }
 
 export interface RenderOutputSavedEvent {
@@ -102,14 +118,16 @@ export interface RenderFrameCompletedEvent {
   renderId: string
   scene: string
   frame: number
+  completedFrames: number
+  totalFrames: number
   outputCount: number
 }
 
-export interface RenderCompletedEvent {
-  type: 'render-completed'
+export interface RenderJobCompletedEvent {
+  type: 'job-completed'
   renderId: string
-  scene: string
-  frame: number
+  completedFrames: number
+  totalFrames: number
 }
 
 export interface RenderErrorEvent {
@@ -119,8 +137,9 @@ export interface RenderErrorEvent {
 }
 
 export type RenderEvent =
-  | RenderStartedEvent
+  | RenderJobStartedEvent
+  | RenderFrameStartedEvent
   | RenderOutputSavedEvent
   | RenderFrameCompletedEvent
-  | RenderCompletedEvent
+  | RenderJobCompletedEvent
   | RenderErrorEvent

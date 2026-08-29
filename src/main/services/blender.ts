@@ -4,21 +4,49 @@ import { join } from 'node:path'
 import type {
   BlenderInstallation,
   BlendProjectInfo,
-  RenderCompletedEvent,
-  RenderErrorEvent,
-  RenderFrameCompletedEvent,
   RenderFrameRequest,
-  RenderOutputSavedEvent,
-  RenderStartedEvent
+  RenderOutputMode
 } from '../../shared/types'
 import * as z from 'zod'
 
-type BlenderRenderEvent =
-  | Omit<RenderStartedEvent, 'renderId'>
-  | Omit<RenderOutputSavedEvent, 'renderId'>
-  | Omit<RenderFrameCompletedEvent, 'renderId'>
-  | Omit<RenderCompletedEvent, 'renderId'>
-  | Omit<RenderErrorEvent, 'renderId'>
+interface BlenderRenderStartedEvent {
+  type: 'render-started'
+  scene: string
+  frame: number
+  outputMode: RenderOutputMode
+}
+
+interface BlenderRenderOutputSavedEvent {
+  type: 'output-saved'
+  scene: string
+  frame: number
+  path: string
+}
+
+interface BlenderRenderFrameCompletedEvent {
+  type: 'frame-completed'
+  scene: string
+  frame: number
+  outputCount: number
+}
+
+interface BlenderRenderCompletedEvent {
+  type: 'render-completed'
+  scene: string
+  frame: number
+}
+
+interface BlenderRenderErrorEvent {
+  type: 'error'
+  message: string
+}
+
+export type BlenderRenderEvent =
+  | BlenderRenderStartedEvent
+  | BlenderRenderOutputSavedEvent
+  | BlenderRenderFrameCompletedEvent
+  | BlenderRenderCompletedEvent
+  | BlenderRenderErrorEvent
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 const INSPECTION_RESULT_PREFIX = 'BLENDQ_INSPECTION_RESULT='

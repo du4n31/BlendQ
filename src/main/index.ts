@@ -12,13 +12,10 @@ import { basename, extname, join } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
-import {
-  detectBlenderInstallations,
-  inspectBlendProject,
-  startLocalRender
-} from './services/blender'
+import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
 import type { RenderOutputMode, StartLocalRenderRequest } from '../shared/types'
 import { randomUUID } from 'node:crypto'
+import { startLocalRenderJob } from './render/local-render-job'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -56,20 +53,50 @@ async function validateStartLocalRenderRequest(value: unknown): Promise<StartLoc
     throw new Error('Invalid render scene name.')
   }
 
-  if (typeof request.frame !== 'number' || !Number.isSafeInteger(request.frame)) {
-    throw new Error('Invalid render frame.')
-  }
-
   if (typeof request.outputDirectory !== 'string' || request.outputDirectory.length === 0) {
     throw new Error('Invalid render output directory.')
   }
 
+  const frameRange = validateFrameRange(request.frameRange)
+
   return {
     blendFilePath,
     sceneName: request.sceneName,
-    frame: request.frame,
+    frameRange,
     outputMode: validateRenderOutputMode(request.outputMode),
     outputDirectory: request.outputDirectory
+  }
+}
+
+function validateFrameRange(value: unknown): StartLocalRenderRequest['frameRange'] {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('Invalid render frame range.')
+  }
+
+  const frameRange = value as Record<string, unknown>
+
+  const { start, end, step } = frameRange
+
+  if (typeof start !== 'number' || !Number.isSafeInteger(start)) {
+    throw new Error('Render frame range start must be an integer.')
+  }
+
+  if (typeof end !== 'number' || !Number.isSafeInteger(end)) {
+    throw new Error('Render frame range end must be an integer.')
+  }
+
+  if (typeof step !== 'number' || !Number.isSafeInteger(step) || step < 1) {
+    throw new Error('Render frame range step must be a positive integer.')
+  }
+
+  if (start > end) {
+    throw new Error('Render frame range start cannot be greater than the end.')
+  }
+
+  return {
+    start,
+    end,
+    step
   }
 }
 
@@ -211,23 +238,32 @@ app.whenReady().then(() => {
 
     const blender = installations[0]
     const renderId = randomUUID()
+    const sender = event.sender
 
-    await startLocalRender(
-      {
-        ...request,
-        blenderExecutablePath: blender.executablePath
-      },
-      (renderEvent) => {
-        if (event.sender.isDestroyed()) {
+    void startLocalRenderJob({
+      renderId,
+      blenderExecutablePath: blender.executablePath,
+      request,
+      onEvent: (renderEvent) => {
+        if (sender.isDestroyed()) {
           return
         }
 
-        event.sender.send('render:event', {
-          ...renderEvent,
-          renderId
+        sender.send('render:event', renderEvent)
+      }
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+
+      console.error('Local render job failed.', error)
+
+      if (!sender.isDestroyed()) {
+        sender.send('render:event', {
+          type: 'error',
+          renderId,
+          message
         })
       }
-    )
+    })
 
     return renderId
   })

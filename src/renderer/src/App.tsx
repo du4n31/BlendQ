@@ -29,7 +29,9 @@ function App(): React.JSX.Element {
 
   const [selectedSceneName, setSelectedSceneName] = useState('')
 
-  const [frame, setFrame] = useState(1)
+  const [frameStart, setFrameStart] = useState(1)
+const [frameEnd, setFrameEnd] = useState(1)
+const [frameStep, setFrameStep] = useState(1)
 
   const [outputMode, setOutputMode] = useState<RenderOutputMode>('scene-output')
 
@@ -91,7 +93,9 @@ function App(): React.JSX.Element {
       if (firstScene) {
         setSelectedSceneName(firstScene.name)
 
-        setFrame(firstScene.frameStart)
+        setFrameStart(firstScene.frameStart)
+setFrameEnd(firstScene.frameEnd)
+setFrameStep(firstScene.frameStep)
       } else {
         setSelectedSceneName('')
       }
@@ -121,36 +125,43 @@ function App(): React.JSX.Element {
   }
 
   async function startRender(): Promise<void> {
-    if (selectedProject === null || selectedScene === null || outputDirectory === null) {
-      return
-    }
-
-    setRenderStatus('running')
-    setRenderEvents([])
-    setRenderErrorMessage(null)
-
-    try {
-      await window.api.startLocalRender({
-        blendFilePath: selectedProject.path,
-
-        sceneName: selectedScene.name,
-
-        frame,
-
-        outputMode,
-
-        outputDirectory
-      })
-
-      setRenderStatus('completed')
-    } catch (error) {
-      console.error('Failed to render Blender project.', error)
-
-      setRenderErrorMessage('The render could not be completed.')
-
-      setRenderStatus('error')
-    }
+  if (
+    selectedProject === null ||
+    selectedScene === null ||
+    outputDirectory === null
+  ) {
+    return
   }
+
+  setRenderStatus('running')
+  setRenderEvents([])
+  setRenderErrorMessage(null)
+
+  try {
+    await window.api.startLocalRender({
+      blendFilePath: selectedProject.path,
+      sceneName: selectedScene.name,
+      frameRange: {
+        start: frameStart,
+        end: frameEnd,
+        step: frameStep
+      },
+      outputMode,
+      outputDirectory
+    })
+  } catch (error) {
+    console.error(
+      'Failed to start Blender render job.',
+      error
+    )
+
+    setRenderErrorMessage(
+      'The render job could not be started.'
+    )
+
+    setRenderStatus('error')
+  }
+}
 
   useEffect(() => {
     let cancelled = false
@@ -197,6 +208,10 @@ function App(): React.JSX.Element {
 
         setRenderStatus('error')
       }
+
+      if (event.type === 'job-completed') {
+  setRenderStatus('completed')
+}
     })
 
     return unsubscribe
@@ -208,7 +223,9 @@ function App(): React.JSX.Element {
     const scene = projectInfo?.scenes.find((candidate) => candidate.name === sceneName)
 
     if (scene) {
-      setFrame(scene.frameStart)
+      setFrameStart(scene.frameStart)
+setFrameEnd(scene.frameEnd)
+setFrameStep(scene.frameStep)
     }
   }
 
@@ -316,19 +333,54 @@ function App(): React.JSX.Element {
                   </p>
 
                   <div>
-                    <label htmlFor="frame">Frame</label>
+  <label htmlFor="frame-start">Start Frame</label>
 
-                    <input
-                      id="frame"
-                      type="number"
-                      min={selectedScene.frameStart}
-                      max={selectedScene.frameEnd}
-                      step={selectedScene.frameStep}
-                      value={frame}
-                      onChange={(event) => setFrame(Number(event.target.value))}
-                      disabled={renderStatus === 'running'}
-                    />
-                  </div>
+  <input
+    id="frame-start"
+    type="number"
+    min={selectedScene.frameStart}
+    max={selectedScene.frameEnd}
+    step={selectedScene.frameStep}
+    value={frameStart}
+    onChange={(event) =>
+      setFrameStart(Number(event.target.value))
+    }
+    disabled={renderStatus === 'running'}
+  />
+</div>
+
+<div>
+  <label htmlFor="frame-end">End Frame</label>
+
+  <input
+    id="frame-end"
+    type="number"
+    min={selectedScene.frameStart}
+    max={selectedScene.frameEnd}
+    step={selectedScene.frameStep}
+    value={frameEnd}
+    onChange={(event) =>
+      setFrameEnd(Number(event.target.value))
+    }
+    disabled={renderStatus === 'running'}
+  />
+</div>
+
+<div>
+  <label htmlFor="frame-step">Step</label>
+
+  <input
+    id="frame-step"
+    type="number"
+    min={1}
+    step={1}
+    value={frameStep}
+    onChange={(event) =>
+      setFrameStep(Number(event.target.value))
+    }
+    disabled={renderStatus === 'running'}
+  />
+</div>
                 </>
               )}
 
@@ -377,7 +429,7 @@ function App(): React.JSX.Element {
               </div>
 
               <button type="button" onClick={startRender} disabled={!canRender}>
-                {renderStatus === 'running' ? 'Rendering...' : 'Render Frame'}
+                {renderStatus === 'running' ? 'Rendering...' : 'Render Range'}
               </button>
             </>
           )}
@@ -389,7 +441,7 @@ function App(): React.JSX.Element {
 
         {renderStatus === 'idle' && <p>No render has been started.</p>}
 
-        {renderStatus === 'running' && <p>Rendering frame...</p>}
+        {renderStatus === 'running' && <p>Rendering frames...</p>}
 
         {renderStatus === 'completed' && <p>Render completed successfully.</p>}
 
@@ -399,16 +451,23 @@ function App(): React.JSX.Element {
           <ul>
             {renderEvents.map((event, index) => (
               <li key={`${event.renderId}-${event.type}-${index}`}>
-                {event.type === 'render-started' && `Started frame ${event.frame}.`}
+                {event.type === 'job-started' &&
+  `Render job started with ${event.totalFrames} frame(s).`}
 
-                {event.type === 'output-saved' && `Saved ${event.path}`}
+{event.type === 'frame-started' &&
+  `Rendering frame ${event.frame} (${event.completedFrames + 1} of ${event.totalFrames}).`}
 
-                {event.type === 'frame-completed' &&
-                  `Frame ${event.frame} produced ${event.outputCount} output file(s).`}
+{event.type === 'output-saved' &&
+  `Saved ${event.path}`}
 
-                {event.type === 'render-completed' && `Completed frame ${event.frame}.`}
+{event.type === 'frame-completed' &&
+  `Frame ${event.frame} completed (${event.completedFrames} of ${event.totalFrames}) with ${event.outputCount} output file(s).`}
 
-                {event.type === 'error' && event.message}
+{event.type === 'job-completed' &&
+  `Render job completed: ${event.completedFrames} of ${event.totalFrames} frame(s).`}
+
+{event.type === 'error' &&
+  event.message}
               </li>
             ))}
           </ul>
