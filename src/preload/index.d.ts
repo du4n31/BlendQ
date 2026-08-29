@@ -4,10 +4,7 @@ import type { BlenderInstallation, BlendProjectFile } from '../shared/types'
 interface API {
   detectBlender: () => Promise<BlenderInstallation[]>
   selectBlendFile: () => Promise<BlendProjectFile | null>
-  inspectBlendProjectTest: (
-    blenderExecutablePath: string,
-    blendFilePath: string
-  ) => Promise<BlendProjectInfo>
+  inspectBlendProject: (blendFilePath: string) => Promise<BlendProjectInfo>
 }
 
 declare global {

@@ -11,11 +11,8 @@ const api = {
     return ipcRenderer.invoke('project:select-file')
   },
 
-  inspectBlendProjectTest: (
-    blenderExecutablePath: string,
-    blendFilePath: string
-  ): Promise<BlendProjectInfo> => {
-    return ipcRenderer.invoke('blender:inspect-test', blenderExecutablePath, blendFilePath)
+  inspectBlendProject: (blendFilePath: string): Promise<BlendProjectInfo> => {
+    return ipcRenderer.invoke('blender:inspect-project', blendFilePath)
   }
 }
 

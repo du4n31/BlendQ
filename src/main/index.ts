@@ -92,12 +92,17 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle(
-    'blender:inspect-test',
-    async (_event, blenderExecutablePath: string, blendFilePath: string) => {
-      return inspectBlendProject(blenderExecutablePath, blendFilePath)
+  ipcMain.handle('blender:inspect-project', async (_event, blendFilePath: string) => {
+    const installations = await detectBlenderInstallations()
+
+    if (installations.length === 0) {
+      throw new Error('No compatible Blender installation was found.')
     }
-  )
+
+    const blender = installations[0]
+
+    return inspectBlendProject(blender.executablePath, blendFilePath)
+  })
 
   createWindow()
 
