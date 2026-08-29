@@ -5,6 +5,14 @@ import type { BlenderInstallation } from '../../shared/types'
 
 const MINIMUM_BLENDER_MAJOR_VERSION = 5
 
+interface ParsedBlenderVersion {
+  version: string
+  major: number
+  minor: number
+  patch: number
+  isLts: boolean
+}
+
 export async function detectBlenderInstallations(): Promise<BlenderInstallation[]> {
   const blenderFoundationPath = 'C:\\Program Files\\Blender Foundation'
 
@@ -40,14 +48,19 @@ export async function detectBlenderInstallations(): Promise<BlenderInstallation[
       await access(executablePath)
 
       const version = await getBlenderVersion(executablePath)
+      const parsedVersion = parseBlenderVersion(version)
 
-      if (!isSupportedBlenderVersion(version)) {
+      if (!parsedVersion) {
+        continue
+      }
+
+      if (parsedVersion.major < MINIMUM_BLENDER_MAJOR_VERSION) {
         continue
       }
 
       installations.push({
         executablePath,
-        version
+        ...parsedVersion
       })
     } catch (error) {
       console.warn(`Failed to inspect Blender installation at "${executablePath}".`, error)
@@ -71,16 +84,20 @@ function getBlenderVersion(executablePath: string): Promise<string> {
   })
 }
 
-function isSupportedBlenderVersion(version: string): boolean {
-  const match = version.match(/Blender (\d+)\.(\d+)/)
+function parseBlenderVersion(version: string): ParsedBlenderVersion | null {
+  const match = version.match(/^Blender (\d+)\.(\d+)\.(\d+)(?:\s+(LTS))?/)
 
   if (!match) {
-    return false
+    return null
   }
 
-  const major = Number(match[1])
-
-  return major >= MINIMUM_BLENDER_MAJOR_VERSION
+  return {
+    version,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    isLts: match[4] === 'LTS'
+  }
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

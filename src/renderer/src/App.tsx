@@ -1,28 +1,65 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BlenderInstallation } from '../../shared/types'
 
 function App(): React.JSX.Element {
   const [installations, setInstallations] = useState<BlenderInstallation[]>([])
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('loading')
   const [errorMessage, setErrorMessage] = useState('')
+
+  async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
+    return window.api.detectBlender()
+  }
 
   async function detectBlender(): Promise<void> {
     setStatus('loading')
     setErrorMessage('')
 
     try {
-      const result = await window.api.detectBlender()
+      const result = await loadBlenderInstallations()
 
       setInstallations(result)
       setStatus('success')
     } catch (error) {
-      console.error(error)
+      console.error('Failed to detect Blender installations.', error)
 
       setInstallations([])
       setStatus('error')
-      setErrorMessage('No se pudo detectar Blender.')
+      setErrorMessage('Blender could not be detected.')
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function initializeBlenderDetection(): Promise<void> {
+      try {
+        const result = await loadBlenderInstallations()
+
+        if (cancelled) {
+          return
+        }
+
+        setInstallations(result)
+        setStatus('success')
+      } catch (error) {
+        if (cancelled) {
+          return
+        }
+
+        console.error('Failed to detect Blender installations.', error)
+
+        setInstallations([])
+        setStatus('error')
+        setErrorMessage('Blender could not be detected.')
+      }
+    }
+
+    void initializeBlenderDetection()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <main>
@@ -30,15 +67,15 @@ function App(): React.JSX.Element {
       <p>Blender Render Manager</p>
 
       <button onClick={detectBlender} disabled={status === 'loading'}>
-        {status === 'loading' ? 'Detectando...' : 'Detectar Blender'}
+        {status === 'loading' ? 'Detecting...' : 'Scan again'}
       </button>
 
-      {status === 'idle' && <p>Comprueba si hay una instalación compatible de Blender.</p>}
+      {status === 'idle' && <p>Preparing Blender detection...</p>}
 
-      {status === 'loading' && <p>Buscando Blender 5.0 o superior...</p>}
+      {status === 'loading' && <p>Looking for Blender 5.0 or newer...</p>}
 
       {status === 'success' && installations.length === 0 && (
-        <p>No se encontró Blender 5.0 o superior.</p>
+        <p>No compatible Blender installation was found.</p>
       )}
 
       {status === 'success' && installations.length > 0 && (
