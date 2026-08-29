@@ -17,6 +17,10 @@ const api = {
     return ipcRenderer.invoke('project:open')
   },
 
+  selectRenderOutputDirectory: (): Promise<string | null> => {
+    return ipcRenderer.invoke('render:select-output-directory')
+  },
+
   startLocalRender: (request: StartLocalRenderRequest): Promise<string> => {
     return ipcRenderer.invoke('render:start-local', request)
   },

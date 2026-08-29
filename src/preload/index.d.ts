@@ -12,6 +12,8 @@ interface API {
 
   openBlendProject: () => Promise<OpenBlendProjectResult | null>
 
+  selectRenderOutputDirectory: () => Promise<string | null>
+
   startLocalRender: (request: StartLocalRenderRequest) => Promise<string>
 
   onRenderEvent: (callback: (event: RenderEvent) => void) => () => void

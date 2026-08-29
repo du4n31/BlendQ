@@ -181,48 +181,21 @@ app.whenReady().then(() => {
       },
       info
     }
-
-    ipcMain.handle('render:start-local', async (event, value: unknown) => {
-      assertTrustedSender(event)
-
-      const request = await validateStartLocalRenderRequest(value)
-
-      const installations = await detectBlenderInstallations()
-
-      if (installations.length === 0) {
-        throw new Error('No compatible Blender installation was found.')
-      }
-
-      const blender = installations[0]
-      const renderId = randomUUID()
-
-      await startLocalRender(
-        {
-          ...request,
-          blenderExecutablePath: blender.executablePath
-        },
-        (renderEvent) => {
-          if (event.sender.isDestroyed()) {
-            return
-          }
-
-          event.sender.send('render:event', {
-            ...renderEvent,
-            renderId
-          })
-        }
-      )
-
-      return renderId
-    })
   })
 
-  createWindow()
+  ipcMain.handle('render:select-output-directory', async (event) => {
+    assertTrustedSender(event)
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+    const result = await dialog.showOpenDialog({
+      title: 'Select Render Output Folder',
+      properties: ['openDirectory']
+    })
+
+    if (result.canceled) {
+      return null
     }
+
+    return result.filePaths[0] ?? null
   })
 
   ipcMain.handle('render:start-local', async (event, value: unknown) => {
@@ -257,6 +230,14 @@ app.whenReady().then(() => {
     )
 
     return renderId
+  })
+
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    }
   })
 })
 

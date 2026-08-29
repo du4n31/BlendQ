@@ -53,11 +53,17 @@ def main() -> None:
                 frame=frame,
                 output_dir=output_dir,
             )
+
+            output_search_roots = [output_dir]
         else:
-            _configure_compositor_outputs(
+            output_search_roots = _configure_compositor_outputs(
                 scene=scene,
                 output_dir=output_dir,
             )
+
+        files_before_render = _snapshot_files(
+            output_search_roots
+        )
 
         bpy.context.window.scene = scene
 
@@ -66,7 +72,10 @@ def main() -> None:
             scene=scene.name,
         )
 
-        output_files = _find_output_files(output_dir)
+        output_files = _find_changed_output_files(
+            search_roots=output_search_roots,
+            files_before=files_before_render,
+        )
 
         for output_file in output_files:
             _emit(
@@ -122,7 +131,7 @@ def _configure_scene_output(
 def _configure_compositor_outputs(
     scene: bpy.types.Scene,
     output_dir: Path,
-) -> None:
+) -> list[Path]:
     scene.render.use_compositing = True
 
     node_tree = getattr(
@@ -147,28 +156,25 @@ def _configure_compositor_outputs(
             "The selected scene does not contain any File Output nodes."
         )
 
-    # Prevent the normal scene output from being written alongside
-    # compositor outputs.
-    discard_dir = output_dir / "_scene_output"
-    discard_dir.mkdir(parents=True, exist_ok=True)
-
-    scene.render.filepath = str(
-        discard_dir / "_render_result_"
-    )
+    output_directories: list[Path] = []
 
     for index, node in enumerate(file_output_nodes):
-        _configure_file_output_node(
+        node_output_dir = _configure_file_output_node(
             node=node,
             index=index,
             output_dir=output_dir,
         )
+
+        output_directories.append(node_output_dir)
+
+    return output_directories
 
 
 def _configure_file_output_node(
     node,
     index: int,
     output_dir: Path,
-) -> None:
+) -> Path:
     safe_node_name = _safe_name(node.name)
 
     node_output_dir = (
@@ -200,7 +206,7 @@ def _configure_file_output_node(
             f"{safe_node_name}_######"
         )
 
-        return
+        return node_output_dir
 
     # For regular File Output nodes each item may produce
     # its own physical file.
@@ -214,17 +220,48 @@ def _configure_file_output_node(
 
         item.name = clean_name
 
+    return node_output_dir
 
-def _find_output_files(
-    output_dir: Path,
+
+def _snapshot_files(
+    search_roots: list[Path],
+) -> dict[Path, tuple[int, int]]:
+    snapshot: dict[Path, tuple[int, int]] = {}
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+
+            resolved_path = path.resolve()
+            file_stat = resolved_path.stat()
+
+            snapshot[resolved_path] = (
+                file_stat.st_size,
+                file_stat.st_mtime_ns,
+            )
+
+    return snapshot
+
+
+def _find_changed_output_files(
+    search_roots: list[Path],
+    files_before: dict[Path, tuple[int, int]],
 ) -> list[Path]:
-    files = [
-        path.resolve()
-        for path in output_dir.rglob("*")
-        if path.is_file()
+    files_after = _snapshot_files(
+        search_roots
+    )
+
+    changed_files = [
+        path
+        for path, fingerprint in files_after.items()
+        if files_before.get(path) != fingerprint
     ]
 
-    return sorted(files)
+    return sorted(changed_files)
 
 
 def _safe_name(value: str) -> str:

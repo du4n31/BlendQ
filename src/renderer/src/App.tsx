@@ -1,9 +1,18 @@
-import { useEffect, useState } from 'react'
-import type { BlenderInstallation, BlendProjectFile, BlendProjectInfo } from '../../shared/types'
+import { useEffect, useMemo, useState } from 'react'
+
+import type {
+  BlenderInstallation,
+  BlendProjectFile,
+  BlendProjectInfo,
+  RenderEvent,
+  RenderOutputMode
+} from '../../shared/types'
 
 type BlenderStatus = 'loading' | 'success' | 'not-found' | 'error'
 
 type ProjectStatus = 'idle' | 'loading' | 'success' | 'error'
+
+type RenderStatus = 'idle' | 'running' | 'completed' | 'error'
 
 function App(): React.JSX.Element {
   const [blenderInstallations, setBlenderInstallations] = useState<BlenderInstallation[]>([])
@@ -18,6 +27,24 @@ function App(): React.JSX.Element {
 
   const [projectStatus, setProjectStatus] = useState<ProjectStatus>('idle')
 
+  const [selectedSceneName, setSelectedSceneName] = useState('')
+
+  const [frame, setFrame] = useState(1)
+
+  const [outputMode, setOutputMode] = useState<RenderOutputMode>('scene-output')
+
+  const [outputDirectory, setOutputDirectory] = useState<string | null>(null)
+
+  const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle')
+
+  const [renderEvents, setRenderEvents] = useState<RenderEvent[]>([])
+
+  const [renderErrorMessage, setRenderErrorMessage] = useState<string | null>(null)
+
+  const selectedScene = useMemo(() => {
+    return projectInfo?.scenes.find((scene) => scene.name === selectedSceneName) ?? null
+  }, [projectInfo, selectedSceneName])
+
   async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
     return window.api.detectBlender()
   }
@@ -31,16 +58,14 @@ function App(): React.JSX.Element {
 
       setBlenderInstallations(installations)
 
-      if (installations.length === 0) {
-        setBlenderStatus('not-found')
-      } else {
-        setBlenderStatus('success')
-      }
+      setBlenderStatus(installations.length === 0 ? 'not-found' : 'success')
     } catch (error) {
       console.error('Failed to detect Blender installations.', error)
 
       setBlenderInstallations([])
+
       setBlenderErrorMessage('BlendQ could not detect Blender installations.')
+
       setBlenderStatus('error')
     }
   }
@@ -60,6 +85,21 @@ function App(): React.JSX.Element {
       setSelectedProject(result.file)
       setProjectInfo(result.info)
       setProjectStatus('success')
+
+      const firstScene = result.info.scenes[0]
+
+      if (firstScene) {
+        setSelectedSceneName(firstScene.name)
+
+        setFrame(firstScene.frameStart)
+      } else {
+        setSelectedSceneName('')
+      }
+
+      setOutputDirectory(null)
+      setRenderEvents([])
+      setRenderStatus('idle')
+      setRenderErrorMessage(null)
     } catch (error) {
       console.error('Failed to open Blender project.', error)
 
@@ -68,10 +108,54 @@ function App(): React.JSX.Element {
     }
   }
 
+  async function selectOutputDirectory(): Promise<void> {
+    try {
+      const directory = await window.api.selectRenderOutputDirectory()
+
+      if (directory !== null) {
+        setOutputDirectory(directory)
+      }
+    } catch (error) {
+      console.error('Failed to select render output directory.', error)
+    }
+  }
+
+  async function startRender(): Promise<void> {
+    if (selectedProject === null || selectedScene === null || outputDirectory === null) {
+      return
+    }
+
+    setRenderStatus('running')
+    setRenderEvents([])
+    setRenderErrorMessage(null)
+
+    try {
+      await window.api.startLocalRender({
+        blendFilePath: selectedProject.path,
+
+        sceneName: selectedScene.name,
+
+        frame,
+
+        outputMode,
+
+        outputDirectory
+      })
+
+      setRenderStatus('completed')
+    } catch (error) {
+      console.error('Failed to render Blender project.', error)
+
+      setRenderErrorMessage('The render could not be completed.')
+
+      setRenderStatus('error')
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
-    async function initializeBlenderDetection(): Promise<void> {
+    async function initialize(): Promise<void> {
       try {
         const installations = await loadBlenderInstallations()
 
@@ -81,11 +165,7 @@ function App(): React.JSX.Element {
 
         setBlenderInstallations(installations)
 
-        if (installations.length === 0) {
-          setBlenderStatus('not-found')
-        } else {
-          setBlenderStatus('success')
-        }
+        setBlenderStatus(installations.length === 0 ? 'not-found' : 'success')
       } catch (error) {
         console.error('Failed to detect Blender installations.', error)
 
@@ -94,21 +174,55 @@ function App(): React.JSX.Element {
         }
 
         setBlenderInstallations([])
+
         setBlenderErrorMessage('BlendQ could not detect Blender installations.')
+
         setBlenderStatus('error')
       }
     }
 
-    void initializeBlenderDetection()
+    void initialize()
 
     return () => {
       cancelled = true
     }
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = window.api.onRenderEvent((event) => {
+      setRenderEvents((currentEvents) => [...currentEvents, event])
+
+      if (event.type === 'error') {
+        setRenderErrorMessage(event.message)
+
+        setRenderStatus('error')
+      }
+    })
+
+    return unsubscribe
+  }, [])
+
+  function handleSceneChange(sceneName: string): void {
+    setSelectedSceneName(sceneName)
+
+    const scene = projectInfo?.scenes.find((candidate) => candidate.name === sceneName)
+
+    if (scene) {
+      setFrame(scene.frameStart)
+    }
+  }
+
+  const canRender =
+    selectedProject !== null &&
+    selectedScene !== null &&
+    outputDirectory !== null &&
+    renderStatus !== 'running'
+
   return (
     <main>
       <h1>BlendQ</h1>
+
+      <p>Local Blender rendering</p>
 
       <section>
         <h2>Blender</h2>
@@ -121,19 +235,16 @@ function App(): React.JSX.Element {
           <p>{blenderErrorMessage ?? 'An unexpected Blender detection error occurred.'}</p>
         )}
 
-        {blenderStatus === 'success' && (
-          <>
-            {blenderInstallations.map((installation) => (
-              <div key={installation.executablePath}>
-                <strong>Blender {installation.version}</strong>
+        {blenderStatus === 'success' &&
+          blenderInstallations.map((installation) => (
+            <div key={installation.executablePath}>
+              <strong>{installation.version}</strong>
 
-                <p>{installation.executablePath}</p>
+              {installation.isLts && <span> LTS</span>}
 
-                {installation.isLts && <p>LTS</p>}
-              </div>
-            ))}
-          </>
-        )}
+              <p>{installation.executablePath}</p>
+            </div>
+          ))}
 
         <button type="button" onClick={detectBlender} disabled={blenderStatus === 'loading'}>
           {blenderStatus === 'loading' ? 'Scanning...' : 'Scan Again'}
@@ -143,7 +254,11 @@ function App(): React.JSX.Element {
       <section>
         <h2>Project</h2>
 
-        <button type="button" onClick={openProject} disabled={projectStatus === 'loading'}>
+        <button
+          type="button"
+          onClick={openProject}
+          disabled={projectStatus === 'loading' || renderStatus === 'running'}
+        >
           {projectStatus === 'loading' ? 'Loading Project...' : 'Select Blender Project'}
         </button>
 
@@ -152,6 +267,7 @@ function App(): React.JSX.Element {
         {selectedProject !== null && (
           <div>
             <strong>{selectedProject.name}</strong>
+
             <p>{selectedProject.path}</p>
           </div>
         )}
@@ -159,33 +275,143 @@ function App(): React.JSX.Element {
         {projectStatus === 'loading' && <p>Inspecting Blender project...</p>}
 
         {projectStatus === 'error' && <p>The Blender project could not be loaded.</p>}
+      </section>
 
-        {projectStatus === 'success' && projectInfo !== null && (
-          <div>
-            <h3>Scenes</h3>
+      {projectInfo !== null && (
+        <section>
+          <h2>Render</h2>
 
-            {projectInfo.scenes.length === 0 ? (
-              <p>No scenes were found.</p>
-            ) : (
-              <ul>
-                {projectInfo.scenes.map((scene) => (
-                  <li key={scene.name}>
-                    <strong>{scene.name}</strong>
+          {projectInfo.scenes.length === 0 ? (
+            <p>No scenes were found in this project.</p>
+          ) : (
+            <>
+              <div>
+                <label htmlFor="scene">Scene</label>
 
-                    <br />
+                <select
+                  id="scene"
+                  value={selectedSceneName}
+                  onChange={(event) => handleSceneChange(event.target.value)}
+                  disabled={renderStatus === 'running'}
+                >
+                  {projectInfo.scenes.map((scene) => (
+                    <option key={scene.name} value={scene.name}>
+                      {scene.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                    <span>
-                      Frames {scene.frameStart}–{scene.frameEnd}
-                    </span>
+              {selectedScene !== null && (
+                <>
+                  <p>Engine: {selectedScene.renderEngine}</p>
 
-                    <br />
+                  <p>
+                    Resolution: {selectedScene.resolution.width}×{selectedScene.resolution.height}{' '}
+                    at {selectedScene.resolution.percentage}%
+                  </p>
 
-                    <span>Step: {scene.frameStep}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                  <p>
+                    Frame range: {selectedScene.frameStart}–{selectedScene.frameEnd}
+                  </p>
+
+                  <div>
+                    <label htmlFor="frame">Frame</label>
+
+                    <input
+                      id="frame"
+                      type="number"
+                      min={selectedScene.frameStart}
+                      max={selectedScene.frameEnd}
+                      step={selectedScene.frameStep}
+                      value={frame}
+                      onChange={(event) => setFrame(Number(event.target.value))}
+                      disabled={renderStatus === 'running'}
+                    />
+                  </div>
+                </>
+              )}
+
+              <fieldset disabled={renderStatus === 'running'}>
+                <legend>Output Mode</legend>
+
+                <label>
+                  <input
+                    type="radio"
+                    name="output-mode"
+                    value="scene-output"
+                    checked={outputMode === 'scene-output'}
+                    onChange={() => setOutputMode('scene-output')}
+                  />
+                  Scene Output
+                </label>
+
+                <p>Use the output format configured in Blender Render Properties.</p>
+
+                <label>
+                  <input
+                    type="radio"
+                    name="output-mode"
+                    value="compositor-file-outputs"
+                    checked={outputMode === 'compositor-file-outputs'}
+                    onChange={() => setOutputMode('compositor-file-outputs')}
+                  />
+                  Compositor File Outputs
+                </label>
+
+                <p>Save every configured File Output from the compositor.</p>
+              </fieldset>
+
+              <div>
+                <h3>Output Folder</h3>
+
+                <button
+                  type="button"
+                  onClick={selectOutputDirectory}
+                  disabled={renderStatus === 'running'}
+                >
+                  Select Output Folder
+                </button>
+
+                <p>{outputDirectory ?? 'No output folder selected.'}</p>
+              </div>
+
+              <button type="button" onClick={startRender} disabled={!canRender}>
+                {renderStatus === 'running' ? 'Rendering...' : 'Render Frame'}
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      <section>
+        <h2>Render Activity</h2>
+
+        {renderStatus === 'idle' && <p>No render has been started.</p>}
+
+        {renderStatus === 'running' && <p>Rendering frame...</p>}
+
+        {renderStatus === 'completed' && <p>Render completed successfully.</p>}
+
+        {renderStatus === 'error' && <p>{renderErrorMessage ?? 'The render failed.'}</p>}
+
+        {renderEvents.length > 0 && (
+          <ul>
+            {renderEvents.map((event, index) => (
+              <li key={`${event.renderId}-${event.type}-${index}`}>
+                {event.type === 'render-started' && `Started frame ${event.frame}.`}
+
+                {event.type === 'output-saved' && `Saved ${event.path}`}
+
+                {event.type === 'frame-completed' &&
+                  `Frame ${event.frame} produced ${event.outputCount} output file(s).`}
+
+                {event.type === 'render-completed' && `Completed frame ${event.frame}.`}
+
+                {event.type === 'error' && event.message}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </main>
