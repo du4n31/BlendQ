@@ -5,6 +5,7 @@ import type {
   StartLocalRenderRequest
 } from '../../shared/types'
 import { createFrameSequence } from './frame-range'
+import type { RenderPlan } from './render-plan'
 import { scheduleRenderTasks } from './render-scheduler'
 import type { RenderWorker } from './render-worker'
 
@@ -12,6 +13,7 @@ interface StartLocalRenderJobOptions {
   renderId: string
   workers: RenderWorker[]
   request: StartLocalRenderRequest
+  plan?: RenderPlan
   onEvent: (event: RenderEvent) => void
 }
 
@@ -19,6 +21,7 @@ export async function startLocalRenderJob({
   renderId,
   workers,
   request,
+  plan,
   onEvent
 }: StartLocalRenderJobOptions): Promise<void> {
   const frames = createFrameSequence(request.frameRange)
@@ -46,6 +49,7 @@ export async function startLocalRenderJob({
   await scheduleRenderTasks({
     tasks,
     workers,
+    plan,
 
     onTaskStarted: ({ task }) => {
       onEvent({
