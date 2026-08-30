@@ -279,6 +279,26 @@ export async function startLocalRender(
     request.outputDirectory
   ]
 
+  const resolution = request.overrides?.resolution
+
+  if (resolution?.width !== undefined) {
+    args.push('--resolution-width', String(resolution.width))
+  }
+
+  if (resolution?.height !== undefined) {
+    args.push('--resolution-height', String(resolution.height))
+  }
+
+  if (resolution?.percentage !== undefined) {
+    args.push('--resolution-percentage', String(resolution.percentage))
+  }
+
+  const outputFormat = request.overrides?.outputFormat
+
+  if (outputFormat !== undefined) {
+    args.push('--output-format', outputFormat)
+  }
+
   await new Promise<void>((resolve, reject) => {
     const child = spawn(request.blenderExecutablePath, args, {
       windowsHide: true,

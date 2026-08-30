@@ -115,4 +115,98 @@ describe('LocalBlenderWorker', () => {
       'Blender render process failed.'
     )
   })
+
+  it('passes task overrides to the Blender render request', async () => {
+    const worker = new LocalBlenderWorker({
+      id: 'local-1',
+      blenderExecutablePath: 'C:\\Blender\\blender.exe'
+    })
+
+    await worker.renderFrame(
+      {
+        blendFilePath: 'C:\\Projects\\project.blend',
+        sceneName: 'Scene',
+        frame: 1,
+        outputMode: 'scene-output',
+        outputDirectory: 'C:\\Renders',
+        overrides: {
+          renderEngine: 'CYCLES',
+          outputFormat: 'PNG',
+          resolution: {
+            width: 1920,
+            height: 1080,
+            percentage: 100
+          }
+        }
+      },
+      () => undefined
+    )
+
+    expect(startLocalRender).toHaveBeenCalledWith(
+      {
+        blendFilePath: 'C:\\Projects\\project.blend',
+        sceneName: 'Scene',
+        frame: 1,
+        outputMode: 'scene-output',
+        outputDirectory: 'C:\\Renders',
+        overrides: {
+          renderEngine: 'CYCLES',
+          outputFormat: 'PNG',
+          resolution: {
+            width: 1920,
+            height: 1080,
+            percentage: 100
+          }
+        },
+        blenderExecutablePath: 'C:\\Blender\\blender.exe'
+      },
+      expect.any(Function)
+    )
+  })
+
+  it('lets worker overrides replace inherited task settings', async () => {
+    const worker = new LocalBlenderWorker({
+      id: 'local-2',
+      blenderExecutablePath: 'C:\\Blender\\blender.exe',
+      overrides: {
+        outputFormat: 'OPEN_EXR',
+        resolution: {
+          percentage: 50
+        }
+      }
+    })
+
+    await worker.renderFrame(
+      {
+        blendFilePath: 'C:\\Projects\\project.blend',
+        sceneName: 'Scene',
+        frame: 4,
+        outputMode: 'scene-output',
+        outputDirectory: 'C:\\Renders',
+        overrides: {
+          outputFormat: 'PNG',
+          resolution: {
+            width: 1920,
+            height: 1080,
+            percentage: 100
+          }
+        }
+      },
+      () => undefined
+    )
+
+    expect(startLocalRender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        overrides: {
+          outputFormat: 'OPEN_EXR',
+          resolution: {
+            width: 1920,
+            height: 1080,
+            percentage: 50
+          }
+        }
+      }),
+      expect.any(Function)
+    )
+  })
 })

@@ -16,18 +16,38 @@ def main() -> None:
     try:
         args = _parse_args(sys.argv)
 
-        scene_name = _require_arg(args, "scene")
-        frame = int(_require_arg(args, "frame"))
-        output_mode = _require_arg(args, "output-mode")
+        scene_name = _require_arg(
+            args,
+            "scene",
+        )
+
+        frame = int(
+            _require_arg(
+                args,
+                "frame",
+            )
+        )
+
+        output_mode = _require_arg(
+            args,
+            "output-mode",
+        )
+
         output_dir = Path(
-            _require_arg(args, "output-dir")
+            _require_arg(
+                args,
+                "output-dir",
+            )
         ).resolve()
 
-        scene = bpy.data.scenes.get(scene_name)
+        scene = bpy.data.scenes.get(
+            scene_name
+        )
 
         if scene is None:
             raise ValueError(
-                f'Scene "{scene_name}" does not exist.'
+                f'Scene "{scene_name}" '
+                "does not exist."
             )
 
         if output_mode not in {
@@ -35,13 +55,20 @@ def main() -> None:
             OUTPUT_MODE_COMPOSITOR,
         }:
             raise ValueError(
-                f'Unsupported output mode "{output_mode}".'
+                f'Unsupported output mode '
+                f'"{output_mode}".'
             )
 
         output_dir.mkdir(
             parents=True,
             exist_ok=True,
         )
+
+        _apply_render_overrides(
+    scene=scene,
+    args=args,
+    output_mode=output_mode,
+)
 
         scene.frame_set(frame)
 
@@ -54,7 +81,10 @@ def main() -> None:
             }
         )
 
-        if output_mode == OUTPUT_MODE_SCENE:
+        if (
+            output_mode
+            == OUTPUT_MODE_SCENE
+        ):
             _configure_scene_output(
                 scene=scene,
                 frame=frame,
@@ -74,8 +104,9 @@ def main() -> None:
 
         files_before_render = (
             _snapshot_frame_files(
-                search_roots=
-                    output_search_roots,
+                search_roots=(
+                    output_search_roots
+                ),
                 frame=frame,
             )
         )
@@ -92,11 +123,13 @@ def main() -> None:
 
         output_files = (
             _find_changed_frame_files(
-                search_roots=
-                    output_search_roots,
+                search_roots=(
+                    output_search_roots
+                ),
                 frame=frame,
-                files_before=
-                    files_before_render,
+                files_before=(
+                    files_before_render
+                ),
             )
         )
 
@@ -141,6 +174,148 @@ def main() -> None:
 
         raise
 
+
+def _apply_render_overrides(
+    scene: bpy.types.Scene,
+    args: dict[str, str],
+    output_mode: str,
+) -> None:
+    resolution_width = (
+        _optional_positive_int_arg(
+            args=args,
+            name="resolution-width",
+        )
+    )
+
+    resolution_height = (
+        _optional_positive_int_arg(
+            args=args,
+            name="resolution-height",
+        )
+    )
+
+    resolution_percentage = (
+        _optional_positive_int_arg(
+            args=args,
+            name="resolution-percentage",
+        )
+    )
+
+    if resolution_percentage is not None:
+        if resolution_percentage > 100:
+            raise ValueError(
+                "Resolution percentage "
+                "cannot be greater than 100."
+            )
+
+    if resolution_width is not None:
+        scene.render.resolution_x = (
+            resolution_width
+        )
+
+    if resolution_height is not None:
+        scene.render.resolution_y = (
+            resolution_height
+        )
+
+    if resolution_percentage is not None:
+        scene.render.resolution_percentage = (
+            resolution_percentage
+        )
+
+    output_format = args.get(
+        "output-format"
+    )
+
+    if output_format is not None:
+        _apply_output_format_override(
+            scene=scene,
+            output_mode=output_mode,
+            output_format=output_format,
+        )
+
+def _apply_output_format_override(
+    scene: bpy.types.Scene,
+    output_mode: str,
+    output_format: str,
+) -> None:
+    if output_mode == OUTPUT_MODE_SCENE:
+        _configure_image_format(
+            image_format=(
+                scene.render.image_settings
+            ),
+            output_format=output_format,
+            context_name="scene output",
+        )
+
+        return
+
+    node_tree = getattr(
+        scene,
+        "compositing_node_group",
+        None,
+    )
+
+    if node_tree is None:
+        raise RuntimeError(
+            "The selected scene does not "
+            "have a compositor node tree."
+        )
+
+    file_output_nodes = [
+        node
+        for node in node_tree.nodes
+        if node.type == "OUTPUT_FILE"
+    ]
+
+    if not file_output_nodes:
+        raise RuntimeError(
+            "The selected scene does not "
+            "contain any File Output nodes."
+        )
+
+    for node in file_output_nodes:
+        _configure_image_format(
+            image_format=node.format,
+            output_format=output_format,
+            context_name=(
+                f'File Output node '
+                f'"{node.name}"'
+            ),
+        )
+
+def _configure_image_format(
+    image_format,
+    output_format: str,
+    context_name: str,
+) -> None:
+    try:
+        if (
+            output_format
+            == "OPEN_EXR_MULTILAYER"
+        ):
+            image_format.media_type = (
+                "MULTI_LAYER_IMAGE"
+            )
+
+            image_format.file_format = (
+                "OPEN_EXR_MULTILAYER"
+            )
+        else:
+            image_format.media_type = (
+                "IMAGE"
+            )
+
+            image_format.file_format = (
+                output_format
+            )
+
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f'Unsupported output format '
+            f'"{output_format}" for '
+            f'{context_name}.'
+        ) from error        
 
 def _configure_scene_output(
     scene: bpy.types.Scene,
@@ -232,15 +407,15 @@ def _configure_file_output_node(
         node_output_dir
     )
 
-    file_format = getattr(
-        node.format,
-        "file_format",
-        "",
+    media_type = getattr(
+    node.format,
+    "media_type",
+    "",
     )
 
     is_multilayer = (
-        file_format
-        == "OPEN_EXR_MULTILAYER"
+    media_type
+    == "MULTI_LAYER_IMAGE"
     )
 
     if is_multilayer:
@@ -320,8 +495,7 @@ def _find_changed_frame_files(
 ) -> list[Path]:
     files_after = (
         _snapshot_frame_files(
-            search_roots=
-                search_roots,
+            search_roots=search_roots,
             frame=frame,
         )
     )
@@ -402,6 +576,32 @@ def _require_arg(
         )
 
     return value
+
+
+def _optional_positive_int_arg(
+    args: dict[str, str],
+    name: str,
+) -> int | None:
+    value = args.get(name)
+
+    if value is None:
+        return None
+
+    try:
+        parsed_value = int(value)
+    except ValueError as error:
+        raise ValueError(
+            f'Argument "--{name}" '
+            "must be an integer."
+        ) from error
+
+    if parsed_value <= 0:
+        raise ValueError(
+            f'Argument "--{name}" '
+            "must be greater than zero."
+        )
+
+    return parsed_value
 
 
 def _emit(payload: dict) -> None:

@@ -70,12 +70,26 @@ export interface FrameRange {
   step: number
 }
 
+export interface RenderResolutionOverrides {
+  width?: number
+  height?: number
+  percentage?: number
+}
+
+export interface RenderOverrides {
+  renderEngine?: string
+  outputFormat?: string
+  resolution?: RenderResolutionOverrides
+  samples?: number
+}
+
 export interface RenderFrameTask {
   blendFilePath: string
   sceneName: string
   frame: number
   outputMode: RenderOutputMode
   outputDirectory: string
+  overrides?: RenderOverrides
 }
 
 export interface RenderFrameRequest extends RenderFrameTask {
