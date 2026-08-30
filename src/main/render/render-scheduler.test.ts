@@ -157,4 +157,210 @@ describe('scheduleRenderTasks', () => {
 
     expect(onTaskCompleted).not.toHaveBeenCalled()
   })
+
+  it('renders an explicit frame assignment with the requested workers', async () => {
+    const workerAFrames: number[] = []
+    const workerBFrames: number[] = []
+
+    const workerA: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame(task) {
+        workerAFrames.push(task.frame)
+      }
+    }
+
+    const workerB: RenderWorker = {
+      id: 'worker-b',
+      type: 'local',
+
+      async renderFrame(task) {
+        workerBFrames.push(task.frame)
+      }
+    }
+
+    await scheduleRenderTasks({
+      tasks: [
+        createTask(1),
+        createTask(2),
+        createTask(3),
+        createTask(4),
+        createTask(5),
+        createTask(6),
+        createTask(7),
+        createTask(8)
+      ],
+      workers: [workerA, workerB],
+      plan: {
+        mode: 'explicit',
+        assignments: [
+          {
+            workerId: 'worker-a',
+            frames: [1, 4, 6]
+          },
+          {
+            workerId: 'worker-b',
+            frames: [2, 3, 5, 7, 8]
+          }
+        ]
+      }
+    })
+
+    expect(workerAFrames).toEqual([1, 4, 6])
+
+    expect(workerBFrames).toEqual([2, 3, 5, 7, 8])
+  })
+
+  it('rejects a frame assigned to multiple workers', async () => {
+    const workerA: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    const workerB: RenderWorker = {
+      id: 'worker-b',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    await expect(
+      scheduleRenderTasks({
+        tasks: [createTask(1), createTask(2)],
+        workers: [workerA, workerB],
+        plan: {
+          mode: 'explicit',
+          assignments: [
+            {
+              workerId: 'worker-a',
+              frames: [1, 2]
+            },
+            {
+              workerId: 'worker-b',
+              frames: [2]
+            }
+          ]
+        }
+      })
+    ).rejects.toThrow('Frame 2 is assigned to more than one worker.')
+  })
+
+  it('rejects an explicit plan with missing frames', async () => {
+    const worker: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    await expect(
+      scheduleRenderTasks({
+        tasks: [createTask(1), createTask(2), createTask(3)],
+        workers: [worker],
+        plan: {
+          mode: 'explicit',
+          assignments: [
+            {
+              workerId: 'worker-a',
+              frames: [1, 3]
+            }
+          ]
+        }
+      })
+    ).rejects.toThrow('The render plan does not assign the following frames: 2.')
+  })
+
+  it('rejects a frame outside the selected range', async () => {
+    const worker: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    await expect(
+      scheduleRenderTasks({
+        tasks: [createTask(1), createTask(2)],
+        workers: [worker],
+        plan: {
+          mode: 'explicit',
+          assignments: [
+            {
+              workerId: 'worker-a',
+              frames: [1, 2, 99]
+            }
+          ]
+        }
+      })
+    ).rejects.toThrow('Frame 99 is outside the selected frame range.')
+  })
+
+  it('rejects an assignment for an unknown worker', async () => {
+    const worker: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    await expect(
+      scheduleRenderTasks({
+        tasks: [createTask(1)],
+        workers: [worker],
+        plan: {
+          mode: 'explicit',
+          assignments: [
+            {
+              workerId: 'worker-b',
+              frames: [1]
+            }
+          ]
+        }
+      })
+    ).rejects.toThrow('Render plan references unknown worker "worker-b".')
+  })
+
+  it('rejects multiple assignments for the same worker', async () => {
+    const worker: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame() {
+        return undefined
+      }
+    }
+
+    await expect(
+      scheduleRenderTasks({
+        tasks: [createTask(1), createTask(2)],
+        workers: [worker],
+        plan: {
+          mode: 'explicit',
+          assignments: [
+            {
+              workerId: 'worker-a',
+              frames: [1]
+            },
+            {
+              workerId: 'worker-a',
+              frames: [2]
+            }
+          ]
+        }
+      })
+    ).rejects.toThrow('Worker "worker-a" has more than one assignment.')
+  })
 })
