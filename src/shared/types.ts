@@ -70,6 +70,18 @@ export interface FrameRange {
   step: number
 }
 
+export type LocalWorkerSettings =
+  | {
+      mode: 'off'
+    }
+  | {
+      mode: 'automatic'
+    }
+  | {
+      mode: 'manual'
+      workerCount: number
+    }
+
 export interface RenderResolutionOverrides {
   width?: number
   height?: number
@@ -102,6 +114,7 @@ export interface StartLocalRenderRequest {
   frameRange: FrameRange
   outputMode: RenderOutputMode
   outputDirectory: string
+  localWorkerSettings?: LocalWorkerSettings
 }
 
 export interface RenderJobStartedEvent {
@@ -113,6 +126,7 @@ export interface RenderJobStartedEvent {
 export interface RenderFrameStartedEvent {
   type: 'frame-started'
   renderId: string
+  workerId: string
   scene: string
   frame: number
   completedFrames: number
@@ -122,6 +136,7 @@ export interface RenderFrameStartedEvent {
 export interface RenderOutputSavedEvent {
   type: 'output-saved'
   renderId: string
+  workerId: string
   scene: string
   frame: number
   path: string
@@ -130,6 +145,7 @@ export interface RenderOutputSavedEvent {
 export interface RenderFrameCompletedEvent {
   type: 'frame-completed'
   renderId: string
+  workerId: string
   scene: string
   frame: number
   completedFrames: number

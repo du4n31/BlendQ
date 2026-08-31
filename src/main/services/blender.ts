@@ -299,6 +299,12 @@ export async function startLocalRender(
     args.push('--output-format', outputFormat)
   }
 
+  const renderEngine = request.overrides?.renderEngine
+
+  if (renderEngine !== undefined) {
+    args.push('--render-engine', renderEngine)
+  }
+
   await new Promise<void>((resolve, reject) => {
     const child = spawn(request.blenderExecutablePath, args, {
       windowsHide: true,

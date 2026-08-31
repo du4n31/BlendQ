@@ -109,6 +109,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'frame-completed',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 1,
         completedFrames: 1,
@@ -118,6 +119,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'frame-completed',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 2,
         completedFrames: 2,
@@ -127,6 +129,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'frame-completed',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 3,
         completedFrames: 3,
@@ -136,7 +139,7 @@ describe('startLocalRenderJob', () => {
     ])
   })
 
-  it('forwards saved output events with the render ID', async () => {
+  it('forwards saved output events with the render ID and worker ID', async () => {
     const events: RenderEvent[] = []
 
     renderFrame.mockImplementation(async (task, onEvent) => {
@@ -163,6 +166,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'output-saved',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 1,
         path: 'C:\\Renders\\1.exr'
@@ -170,6 +174,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'output-saved',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 2,
         path: 'C:\\Renders\\2.exr'
@@ -177,6 +182,7 @@ describe('startLocalRenderJob', () => {
       {
         type: 'output-saved',
         renderId: 'render-1',
+        workerId: 'local-1',
         scene: 'Scene',
         frame: 3,
         path: 'C:\\Renders\\3.exr'
@@ -285,5 +291,94 @@ describe('startLocalRenderJob', () => {
       completedFrames: 6,
       totalFrames: 6
     })
+  })
+
+  it('reports the worker that rendered each frame', async () => {
+    const workerA: RenderWorker = {
+      id: 'worker-a',
+      type: 'local',
+
+      async renderFrame(task, onEvent) {
+        onEvent({
+          type: 'frame-completed',
+          scene: task.sceneName,
+          frame: task.frame,
+          outputCount: 1
+        })
+      }
+    }
+
+    const workerB: RenderWorker = {
+      id: 'worker-b',
+      type: 'local',
+
+      async renderFrame(task, onEvent) {
+        onEvent({
+          type: 'frame-completed',
+          scene: task.sceneName,
+          frame: task.frame,
+          outputCount: 1
+        })
+      }
+    }
+
+    const events: RenderEvent[] = []
+
+    await startLocalRenderJob({
+      renderId: 'render-1',
+      workers: [workerA, workerB],
+      request: {
+        ...request,
+        frameRange: {
+          start: 1,
+          end: 4,
+          step: 1
+        }
+      },
+      plan: {
+        mode: 'explicit',
+        assignments: [
+          {
+            workerId: 'worker-a',
+            frames: [1, 3]
+          },
+          {
+            workerId: 'worker-b',
+            frames: [2, 4]
+          }
+        ]
+      },
+      onEvent: (event) => {
+        events.push(event)
+      }
+    })
+
+    const completedEvents = events.filter((event) => event.type === 'frame-completed')
+
+    expect(
+      completedEvents
+        .map((event) => ({
+          frame: event.frame,
+          workerId: event.workerId
+        }))
+        .sort((a, b) => a.frame - b.frame)
+    ).toEqual([
+      {
+        frame: 1,
+        workerId: 'worker-a'
+      },
+      {
+        frame: 2,
+        workerId: 'worker-b'
+      },
+      {
+        frame: 3,
+        workerId: 'worker-a'
+      },
+      {
+        frame: 4,
+        workerId: 'worker-b'
+      }
+    ])
   })
 })

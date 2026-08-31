@@ -4,6 +4,7 @@ import type {
   BlenderInstallation,
   BlendProjectFile,
   BlendProjectInfo,
+  LocalWorkerSettings,
   RenderEvent,
   RenderOutputMode
 } from '../../shared/types'
@@ -30,12 +31,18 @@ function App(): React.JSX.Element {
   const [selectedSceneName, setSelectedSceneName] = useState('')
 
   const [frameStart, setFrameStart] = useState(1)
+
   const [frameEnd, setFrameEnd] = useState(1)
+
   const [frameStep, setFrameStep] = useState(1)
 
   const [outputMode, setOutputMode] = useState<RenderOutputMode>('scene-output')
 
   const [outputDirectory, setOutputDirectory] = useState<string | null>(null)
+
+  const [localWorkerMode, setLocalWorkerMode] = useState<'automatic' | 'manual'>('automatic')
+
+  const [manualWorkerCount, setManualWorkerCount] = useState(2)
 
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle')
 
@@ -94,13 +101,20 @@ function App(): React.JSX.Element {
         setSelectedSceneName(firstScene.name)
 
         setFrameStart(firstScene.frameStart)
+
         setFrameEnd(firstScene.frameEnd)
+
         setFrameStep(firstScene.frameStep)
       } else {
         setSelectedSceneName('')
       }
 
       setOutputDirectory(null)
+
+      setLocalWorkerMode('automatic')
+
+      setManualWorkerCount(2)
+
       setRenderEvents([])
       setRenderStatus('idle')
       setRenderErrorMessage(null)
@@ -129,6 +143,16 @@ function App(): React.JSX.Element {
       return
     }
 
+    const localWorkerSettings: LocalWorkerSettings =
+      localWorkerMode === 'automatic'
+        ? {
+            mode: 'automatic'
+          }
+        : {
+            mode: 'manual',
+            workerCount: manualWorkerCount
+          }
+
     setRenderStatus('running')
     setRenderEvents([])
     setRenderErrorMessage(null)
@@ -143,7 +167,8 @@ function App(): React.JSX.Element {
           step: frameStep
         },
         outputMode,
-        outputDirectory
+        outputDirectory,
+        localWorkerSettings
       })
     } catch (error) {
       console.error('Failed to start Blender render job.', error)
@@ -215,16 +240,22 @@ function App(): React.JSX.Element {
 
     if (scene) {
       setFrameStart(scene.frameStart)
+
       setFrameEnd(scene.frameEnd)
+
       setFrameStep(scene.frameStep)
     }
   }
+
+  const hasValidManualWorkerCount =
+    Number.isSafeInteger(manualWorkerCount) && manualWorkerCount >= 1
 
   const canRender =
     selectedProject !== null &&
     selectedScene !== null &&
     outputDirectory !== null &&
-    renderStatus !== 'running'
+    renderStatus !== 'running' &&
+    (localWorkerMode === 'automatic' || hasValidManualWorkerCount)
 
   return (
     <main>
@@ -399,6 +430,59 @@ function App(): React.JSX.Element {
                 <p>Save every configured File Output from the compositor.</p>
               </fieldset>
 
+              <fieldset disabled={renderStatus === 'running'}>
+                <legend>Local Workers</legend>
+
+                <label>
+                  <input
+                    type="radio"
+                    name="local-worker-mode"
+                    value="automatic"
+                    checked={localWorkerMode === 'automatic'}
+                    onChange={() => setLocalWorkerMode('automatic')}
+                  />
+                  Automatic
+                </label>
+
+                <p>
+  BlendQ chooses a conservative local worker
+  count based on available system resources.
+</p>
+
+                <label>
+                  <input
+                    type="radio"
+                    name="local-worker-mode"
+                    value="manual"
+                    checked={localWorkerMode === 'manual'}
+                    onChange={() => setLocalWorkerMode('manual')}
+                  />
+                  Manual
+                </label>
+
+                {localWorkerMode === 'manual' && (
+                  <div>
+                    <label htmlFor="local-worker-count">Worker Count</label>
+
+                    <input
+                      id="local-worker-count"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={manualWorkerCount}
+                      onChange={(event) => setManualWorkerCount(Number(event.target.value))}
+                    />
+
+                    <p>
+                      Running multiple Blender instances can significantly increase RAM and GPU
+                      memory usage.
+                    </p>
+
+                    {!hasValidManualWorkerCount && <p>Worker count must be a positive integer.</p>}
+                  </div>
+                )}
+              </fieldset>
+
               <div>
                 <h3>Output Folder</h3>
 
@@ -440,12 +524,12 @@ function App(): React.JSX.Element {
                   `Render job started with ${event.totalFrames} frame(s).`}
 
                 {event.type === 'frame-started' &&
-                  `Rendering frame ${event.frame} (${event.completedFrames + 1} of ${event.totalFrames}).`}
+                  `Worker ${event.workerId} is rendering frame ${event.frame} (${event.completedFrames + 1} of ${event.totalFrames}).`}
 
-                {event.type === 'output-saved' && `Saved ${event.path}`}
+                {event.type === 'output-saved' && `Worker ${event.workerId} saved ${event.path}`}
 
                 {event.type === 'frame-completed' &&
-                  `Frame ${event.frame} completed (${event.completedFrames} of ${event.totalFrames}) with ${event.outputCount} output file(s).`}
+                  `Worker ${event.workerId} completed frame ${event.frame} (${event.completedFrames} of ${event.totalFrames}) with ${event.outputCount} output file(s).`}
 
                 {event.type === 'job-completed' &&
                   `Render job completed: ${event.completedFrames} of ${event.totalFrames} frame(s).`}

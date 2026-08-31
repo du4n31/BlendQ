@@ -51,10 +51,11 @@ export async function startLocalRenderJob({
     workers,
     plan,
 
-    onTaskStarted: ({ task }) => {
+    onTaskStarted: ({ worker, task }) => {
       onEvent({
         type: 'frame-started',
         renderId,
+        workerId: worker.id,
         scene: task.sceneName,
         frame: task.frame,
         completedFrames,
@@ -62,12 +63,13 @@ export async function startLocalRenderJob({
       })
     },
 
-    onWorkerEvent: ({ task, event }) => {
+    onWorkerEvent: ({ worker, task, event }) => {
       switch (event.type) {
         case 'output-saved':
           onEvent({
             ...event,
-            renderId
+            renderId,
+            workerId: worker.id
           })
           break
 
@@ -82,12 +84,13 @@ export async function startLocalRenderJob({
       }
     },
 
-    onTaskCompleted: ({ task }) => {
+    onTaskCompleted: ({ worker, task }) => {
       completedFrames += 1
 
       const frameCompletedEvent: RenderFrameCompletedEvent = {
         type: 'frame-completed',
         renderId,
+        workerId: worker.id,
         scene: task.sceneName,
         frame: task.frame,
         completedFrames,

@@ -233,6 +233,27 @@ def _apply_render_overrides(
             output_mode=output_mode,
             output_format=output_format,
         )
+        render_engine = args.get(
+        "render-engine"
+        )
+
+        if render_engine is not None:
+            _apply_render_engine_override(
+                scene=scene,
+                render_engine=render_engine,
+            )
+
+def _apply_render_engine_override(
+    scene: bpy.types.Scene,
+    render_engine: str,
+) -> None:
+    try:
+        scene.render.engine = render_engine
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f'Unsupported render engine '
+            f'"{render_engine}".'
+        ) from error            
 
 def _apply_output_format_override(
     scene: bpy.types.Scene,

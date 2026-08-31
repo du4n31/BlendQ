@@ -16,7 +16,14 @@ import icon from '../../resources/icon.png?asset'
 import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
 import type { RenderOutputMode, StartLocalRenderRequest } from '../shared/types'
 import { startLocalRenderJob } from './render/local-render-job'
-import { LocalBlenderWorker } from './render/local-blender-worker'
+import { createRenderWorkerPool } from './render/render-worker-pool'
+import type { RenderWorkerConfiguration } from './render/render-worker-configuration'
+import {
+  resolveLocalWorkerCount,
+  validateLocalWorkerSettings
+} from './render/local-worker-settings'
+import { detectHostCapabilities } from './system/host-capabilities'
+import { recommendLocalConcurrency } from './render/local-concurrency-recommendation'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -60,12 +67,24 @@ async function validateStartLocalRenderRequest(value: unknown): Promise<StartLoc
 
   const frameRange = validateFrameRange(request.frameRange)
 
+  const localWorkerSettings =
+    request.localWorkerSettings === undefined
+      ? {
+          mode: 'automatic' as const
+        }
+      : validateLocalWorkerSettings(request.localWorkerSettings)
+
+  if (localWorkerSettings.mode === 'off') {
+    throw new Error('Local rendering requires at least one local worker.')
+  }
+
   return {
     blendFilePath,
     sceneName: request.sceneName,
     frameRange,
     outputMode: validateRenderOutputMode(request.outputMode),
-    outputDirectory: request.outputDirectory
+    outputDirectory: request.outputDirectory,
+    localWorkerSettings
   }
 }
 
@@ -241,14 +260,38 @@ app.whenReady().then(() => {
     const renderId = randomUUID()
     const sender = event.sender
 
-    const worker = new LocalBlenderWorker({
-      id: 'local-1',
-      blenderExecutablePath: blender.executablePath
+    const hostCapabilities = detectHostCapabilities()
+
+    const concurrencyRecommendation = recommendLocalConcurrency(hostCapabilities)
+
+    const localWorkerCount = resolveLocalWorkerCount(
+      request.localWorkerSettings ?? {
+        mode: 'automatic'
+      },
+      concurrencyRecommendation
+    )
+
+    const workerConfigurations: RenderWorkerConfiguration[] = Array.from(
+      {
+        length: localWorkerCount
+      },
+      (_, index) => ({
+        id: `local-${index + 1}`,
+        source: {
+          type: 'local' as const
+        },
+        overrides: {}
+      })
+    )
+
+    const workers = createRenderWorkerPool({
+      configurations: workerConfigurations,
+      blenderInstallation: blender
     })
 
     void startLocalRenderJob({
       renderId,
-      workers: [worker],
+      workers: workers,
       request,
       onEvent: (renderEvent) => {
         if (!sender.isDestroyed()) {
