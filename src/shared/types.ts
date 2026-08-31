@@ -191,3 +191,26 @@ export type ColabEnvironmentStatus =
       state: 'error'
       message: string
     }
+
+export type ColabAuthenticationStrategy = 'oauth2' | 'adc'
+
+export interface AddColabConnectionRequest {
+  id: string
+  displayName: string
+  authenticationStrategy: ColabAuthenticationStrategy
+}
+
+export interface ColabConnectionSummary {
+  id: string
+  displayName: string
+  authenticationStrategy: ColabAuthenticationStrategy
+
+  runtime:
+    | {
+        type: 'native'
+      }
+    | {
+        type: 'wsl'
+        distribution: string
+      }
+}

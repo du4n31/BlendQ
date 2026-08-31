@@ -1,4 +1,4 @@
-export type ColabAuthenticationStrategy = 'oauth2' | 'adc'
+import type { ColabAuthenticationStrategy } from '../../shared/types'
 
 export type ColabConnectionRuntime =
   | {

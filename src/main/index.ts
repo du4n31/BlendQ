@@ -7,25 +7,53 @@ import {
   type IpcMainInvokeEvent,
   type WebFrameMain
 } from 'electron'
+
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+
 import { basename, extname, join } from 'node:path'
+
 import { stat } from 'node:fs/promises'
+
 import { pathToFileURL } from 'node:url'
+
 import { randomUUID } from 'node:crypto'
+
 import icon from '../../resources/icon.png?asset'
+
+import type {
+  AddColabConnectionRequest,
+  RenderOutputMode,
+  StartLocalRenderRequest
+} from '../shared/types'
+
 import { detectBlenderInstallations, inspectBlendProject } from './services/blender'
-import type { RenderOutputMode, StartLocalRenderRequest } from '../shared/types'
+
 import { startLocalRenderJob } from './render/local-render-job'
+
 import { createRenderWorkerPool } from './render/render-worker-pool'
+
 import type { RenderWorkerConfiguration } from './render/render-worker-configuration'
+
 import {
   resolveLocalWorkerCount,
   validateLocalWorkerSettings
 } from './render/local-worker-settings'
+
 import { detectHostCapabilities } from './system/host-capabilities'
+
 import { recommendLocalConcurrency } from './render/local-concurrency-recommendation'
+
 import { createColabCommandRunner } from './colab/create-colab-command-runner'
+
 import { detectColabEnvironment } from './colab/colab-environment'
+
+import { ColabConnectionManager } from './colab/colab-connection-manager'
+
+import { createPlatformColabConnection } from './colab/create-platform-colab-connection'
+
+import { toColabConnectionSummary } from './colab/colab-connection-summary'
+
+const colabConnectionManager = new ColabConnectionManager()
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -34,6 +62,7 @@ function isTrustedSender(frame: WebFrameMain | null): boolean {
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     const senderUrl = new URL(frame.url)
+
     const rendererUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
 
     return senderUrl.origin === rendererUrl.origin
@@ -47,6 +76,34 @@ function isTrustedSender(frame: WebFrameMain | null): boolean {
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
   if (!isTrustedSender(event.senderFrame)) {
     throw new Error('Blocked IPC request from an untrusted sender.')
+  }
+}
+
+function validateAddColabConnectionRequest(value: unknown): AddColabConnectionRequest {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('Invalid Colab connection request.')
+  }
+
+  const request = value as Record<string, unknown>
+
+  if (typeof request.id !== 'string') {
+    throw new Error('Invalid Colab connection ID.')
+  }
+
+  if (typeof request.displayName !== 'string') {
+    throw new Error('Invalid Colab connection display name.')
+  }
+
+  if (request.authenticationStrategy !== 'oauth2' && request.authenticationStrategy !== 'adc') {
+    throw new Error('Invalid Colab authentication strategy.')
+  }
+
+  return {
+    id: request.id,
+
+    displayName: request.displayName,
+
+    authenticationStrategy: request.authenticationStrategy
   }
 }
 
@@ -82,10 +139,15 @@ async function validateStartLocalRenderRequest(value: unknown): Promise<StartLoc
 
   return {
     blendFilePath,
+
     sceneName: request.sceneName,
+
     frameRange,
+
     outputMode: validateRenderOutputMode(request.outputMode),
+
     outputDirectory: request.outputDirectory,
+
     localWorkerSettings
   }
 }
@@ -154,9 +216,16 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+
+    ...(process.platform === 'linux'
+      ? {
+          icon
+        }
+      : {}),
+
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+
       sandbox: false
     }
   })
@@ -166,7 +235,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    void shell.openExternal(details.url)
 
     return {
       action: 'deny'
@@ -174,9 +243,9 @@ function createWindow(): void {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -193,15 +262,44 @@ app.whenReady().then(() => {
     return detectBlenderInstallations()
   })
 
+  ipcMain.handle('colab:detect-environment', async (event) => {
+    assertTrustedSender(event)
+
+    return detectColabEnvironment(() => createColabCommandRunner())
+  })
+
+  ipcMain.handle('colab:list-connections', (event) => {
+    assertTrustedSender(event)
+
+    return colabConnectionManager.list().map(toColabConnectionSummary)
+  })
+
+  ipcMain.handle('colab:add-connection', async (event, value: unknown) => {
+    assertTrustedSender(event)
+
+    const request = validateAddColabConnectionRequest(value)
+
+    const connection = await createPlatformColabConnection({
+      request
+    })
+
+    colabConnectionManager.add(connection)
+
+    return toColabConnectionSummary(connection)
+  })
+
   ipcMain.handle('project:open', async (event) => {
     assertTrustedSender(event)
 
     const result = await dialog.showOpenDialog({
       title: 'Open Blender Project',
+
       properties: ['openFile'],
+
       filters: [
         {
           name: 'Blender Projects',
+
           extensions: ['blend']
         }
       ]
@@ -226,8 +324,10 @@ app.whenReady().then(() => {
     return {
       file: {
         name: basename(blendFilePath),
+
         path: blendFilePath
       },
+
       info
     }
   })
@@ -237,6 +337,7 @@ app.whenReady().then(() => {
 
     const result = await dialog.showOpenDialog({
       title: 'Select Render Output Folder',
+
       properties: ['openDirectory']
     })
 
@@ -259,7 +360,9 @@ app.whenReady().then(() => {
     }
 
     const blender = installations[0]
+
     const renderId = randomUUID()
+
     const sender = event.sender
 
     const hostCapabilities = detectHostCapabilities()
@@ -270,6 +373,7 @@ app.whenReady().then(() => {
       request.localWorkerSettings ?? {
         mode: 'automatic'
       },
+
       concurrencyRecommendation
     )
 
@@ -277,24 +381,29 @@ app.whenReady().then(() => {
       {
         length: localWorkerCount
       },
+
       (_, index) => ({
         id: `local-${index + 1}`,
+
         source: {
           type: 'local' as const
         },
+
         overrides: {}
       })
     )
 
     const workers = createRenderWorkerPool({
       configurations: workerConfigurations,
+
       blenderInstallation: blender
     })
 
     void startLocalRenderJob({
       renderId,
-      workers: workers,
+      workers,
       request,
+
       onEvent: (renderEvent) => {
         if (!sender.isDestroyed()) {
           sender.send('render:event', renderEvent)
@@ -315,12 +424,6 @@ app.whenReady().then(() => {
     })
 
     return renderId
-  })
-
-  ipcMain.handle('colab:detect-environment', async (event) => {
-    assertTrustedSender(event)
-
-    return detectColabEnvironment(() => createColabCommandRunner())
   })
 
   createWindow()

@@ -4,10 +4,12 @@ import type {
   BlenderInstallation,
   BlendProjectFile,
   BlendProjectInfo,
+  ColabAuthenticationStrategy,
+  ColabConnectionSummary,
+  ColabEnvironmentStatus,
   LocalWorkerSettings,
   RenderEvent,
-  RenderOutputMode,
-  ColabEnvironmentStatus
+  RenderOutputMode
 } from '../../shared/types'
 
 type BlenderStatus = 'loading' | 'success' | 'not-found' | 'error'
@@ -22,6 +24,22 @@ function App(): React.JSX.Element {
   const [blenderStatus, setBlenderStatus] = useState<BlenderStatus>('loading')
 
   const [blenderErrorMessage, setBlenderErrorMessage] = useState<string | null>(null)
+
+  const [colabStatus, setColabStatus] = useState<ColabEnvironmentStatus | null>(null)
+
+  const [colabDetecting, setColabDetecting] = useState(false)
+
+  const [colabConnections, setColabConnections] = useState<ColabConnectionSummary[]>([])
+
+  const [newConnectionId, setNewConnectionId] = useState('personal')
+
+  const [newConnectionName, setNewConnectionName] = useState('Personal')
+
+  const [newConnectionAuth, setNewConnectionAuth] = useState<ColabAuthenticationStrategy>('oauth2')
+
+  const [addingColabConnection, setAddingColabConnection] = useState(false)
+
+  const [colabConnectionError, setColabConnectionError] = useState<string | null>(null)
 
   const [selectedProject, setSelectedProject] = useState<BlendProjectFile | null>(null)
 
@@ -55,9 +73,35 @@ function App(): React.JSX.Element {
     return projectInfo?.scenes.find((scene) => scene.name === selectedSceneName) ?? null
   }, [projectInfo, selectedSceneName])
 
-  const [colabStatus, setColabStatus] = useState<ColabEnvironmentStatus | null>(null)
+  async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
+    return window.api.detectBlender()
+  }
 
-  const [colabDetecting, setColabDetecting] = useState(false)
+  async function addColabConnection(): Promise<void> {
+    setAddingColabConnection(true)
+
+    setColabConnectionError(null)
+
+    try {
+      const connection = await window.api.addColabConnection({
+        id: newConnectionId,
+
+        displayName: newConnectionName,
+
+        authenticationStrategy: newConnectionAuth
+      })
+
+      setColabConnections((connections) => [...connections, connection])
+    } catch (error) {
+      console.error('Failed to add Colab connection.', error)
+
+      setColabConnectionError(
+        error instanceof Error ? error.message : 'Failed to add Colab connection.'
+      )
+    } finally {
+      setAddingColabConnection(false)
+    }
+  }
 
   async function detectColab(): Promise<void> {
     setColabDetecting(true)
@@ -71,6 +115,7 @@ function App(): React.JSX.Element {
 
       setColabStatus({
         state: 'error',
+
         message: 'BlendQ could not detect the Google Colab CLI environment.'
       })
     } finally {
@@ -78,12 +123,9 @@ function App(): React.JSX.Element {
     }
   }
 
-  async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
-    return window.api.detectBlender()
-  }
-
   async function detectBlender(): Promise<void> {
     setBlenderStatus('loading')
+
     setBlenderErrorMessage(null)
 
     try {
@@ -116,7 +158,9 @@ function App(): React.JSX.Element {
       }
 
       setSelectedProject(result.file)
+
       setProjectInfo(result.info)
+
       setProjectStatus('success')
 
       const firstScene = result.info.scenes[0]
@@ -141,11 +185,13 @@ function App(): React.JSX.Element {
 
       setRenderEvents([])
       setRenderStatus('idle')
+
       setRenderErrorMessage(null)
     } catch (error) {
       console.error('Failed to open Blender project.', error)
 
       setProjectInfo(null)
+
       setProjectStatus('error')
     }
   }
@@ -174,24 +220,34 @@ function App(): React.JSX.Element {
           }
         : {
             mode: 'manual',
+
             workerCount: manualWorkerCount
           }
 
     setRenderStatus('running')
+
     setRenderEvents([])
+
     setRenderErrorMessage(null)
 
     try {
       await window.api.startLocalRender({
         blendFilePath: selectedProject.path,
+
         sceneName: selectedScene.name,
+
         frameRange: {
           start: frameStart,
+
           end: frameEnd,
+
           step: frameStep
         },
+
         outputMode,
+
         outputDirectory,
+
         localWorkerSettings
       })
     } catch (error) {
@@ -207,28 +263,35 @@ function App(): React.JSX.Element {
     let cancelled = false
 
     async function initialize(): Promise<void> {
-      try {
-        const installations = await loadBlenderInstallations()
+      const [blenderResult, colabConnectionsResult] = await Promise.allSettled([
+        loadBlenderInstallations(),
+        window.api.listColabConnections()
+      ])
 
-        if (cancelled) {
-          return
-        }
+      if (cancelled) {
+        return
+      }
 
-        setBlenderInstallations(installations)
+      if (blenderResult.status === 'fulfilled') {
+        setBlenderInstallations(blenderResult.value)
 
-        setBlenderStatus(installations.length === 0 ? 'not-found' : 'success')
-      } catch (error) {
-        console.error('Failed to detect Blender installations.', error)
-
-        if (cancelled) {
-          return
-        }
+        setBlenderStatus(blenderResult.value.length === 0 ? 'not-found' : 'success')
+      } else {
+        console.error('Failed to detect Blender installations.', blenderResult.reason)
 
         setBlenderInstallations([])
 
         setBlenderErrorMessage('BlendQ could not detect Blender installations.')
 
         setBlenderStatus('error')
+      }
+
+      if (colabConnectionsResult.status === 'fulfilled') {
+        setColabConnections(colabConnectionsResult.value)
+      } else {
+        console.error('Failed to load Colab connections.', colabConnectionsResult.reason)
+
+        setColabConnections([])
       }
     }
 
@@ -285,7 +348,7 @@ function App(): React.JSX.Element {
     <main>
       <h1>BlendQ</h1>
 
-      <p>Local Blender rendering</p>
+      <p>Local and remote Blender rendering</p>
 
       <section>
         <h2>Blender</h2>
@@ -326,6 +389,7 @@ function App(): React.JSX.Element {
         {colabStatus?.state === 'available' && (
           <>
             <p>Available</p>
+
             <p>{colabStatus.version}</p>
           </>
         )}
@@ -333,6 +397,7 @@ function App(): React.JSX.Element {
         {colabStatus?.state === 'cli-missing' && (
           <>
             <p>Not installed</p>
+
             <p>{colabStatus.message}</p>
           </>
         )}
@@ -340,6 +405,7 @@ function App(): React.JSX.Element {
         {colabStatus?.state === 'runner-unavailable' && (
           <>
             <p>Runtime unavailable</p>
+
             <p>{colabStatus.message}</p>
           </>
         )}
@@ -347,9 +413,86 @@ function App(): React.JSX.Element {
         {colabStatus?.state === 'error' && (
           <>
             <p>Detection failed</p>
+
             <p>{colabStatus.message}</p>
           </>
         )}
+      </section>
+
+      <section>
+        <h2>Google Accounts</h2>
+
+        {colabConnections.length === 0 ? (
+          <p>No Colab connections have been added.</p>
+        ) : (
+          <ul>
+            {colabConnections.map((connection) => (
+              <li key={connection.id}>
+                <strong>{connection.displayName}</strong>
+
+                <p>ID: {connection.id}</p>
+
+                <p>Authentication: {connection.authenticationStrategy}</p>
+
+                <p>
+                  Runtime:{' '}
+                  {connection.runtime.type === 'wsl'
+                    ? `WSL — ${connection.runtime.distribution}`
+                    : 'Native'}
+                </p>
+
+                <p>Not authenticated yet</p>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h3>Add Connection</h3>
+
+        <div>
+          <label htmlFor="colab-connection-id">Connection ID</label>
+
+          <input
+            id="colab-connection-id"
+            value={newConnectionId}
+            onChange={(event) => setNewConnectionId(event.target.value)}
+            disabled={addingColabConnection}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="colab-connection-name">Display Name</label>
+
+          <input
+            id="colab-connection-name"
+            value={newConnectionName}
+            onChange={(event) => setNewConnectionName(event.target.value)}
+            disabled={addingColabConnection}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="colab-auth-strategy">Authentication</label>
+
+          <select
+            id="colab-auth-strategy"
+            value={newConnectionAuth}
+            onChange={(event) =>
+              setNewConnectionAuth(event.target.value as ColabAuthenticationStrategy)
+            }
+            disabled={addingColabConnection}
+          >
+            <option value="oauth2">OAuth 2.0</option>
+
+            <option value="adc">Application Default Credentials</option>
+          </select>
+        </div>
+
+        <button type="button" onClick={addColabConnection} disabled={addingColabConnection}>
+          {addingColabConnection ? 'Adding...' : 'Add Connection'}
+        </button>
+
+        {colabConnectionError && <p>{colabConnectionError}</p>}
       </section>
 
       <section>
@@ -469,7 +612,6 @@ function App(): React.JSX.Element {
                   <input
                     type="radio"
                     name="output-mode"
-                    value="scene-output"
                     checked={outputMode === 'scene-output'}
                     onChange={() => setOutputMode('scene-output')}
                   />
@@ -482,7 +624,6 @@ function App(): React.JSX.Element {
                   <input
                     type="radio"
                     name="output-mode"
-                    value="compositor-file-outputs"
                     checked={outputMode === 'compositor-file-outputs'}
                     onChange={() => setOutputMode('compositor-file-outputs')}
                   />
@@ -499,7 +640,6 @@ function App(): React.JSX.Element {
                   <input
                     type="radio"
                     name="local-worker-mode"
-                    value="automatic"
                     checked={localWorkerMode === 'automatic'}
                     onChange={() => setLocalWorkerMode('automatic')}
                   />
@@ -515,7 +655,6 @@ function App(): React.JSX.Element {
                   <input
                     type="radio"
                     name="local-worker-mode"
-                    value="manual"
                     checked={localWorkerMode === 'manual'}
                     onChange={() => setLocalWorkerMode('manual')}
                   />

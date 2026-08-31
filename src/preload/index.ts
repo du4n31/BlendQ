@@ -1,12 +1,15 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+
 import { electronAPI } from '@electron-toolkit/preload'
 
 import type {
+  AddColabConnectionRequest,
   BlenderInstallation,
+  ColabConnectionSummary,
+  ColabEnvironmentStatus,
   OpenBlendProjectResult,
   RenderEvent,
-  StartLocalRenderRequest,
-  ColabEnvironmentStatus
+  StartLocalRenderRequest
 } from '../shared/types'
 
 const api = {
@@ -16,6 +19,14 @@ const api = {
 
   detectColabEnvironment: (): Promise<ColabEnvironmentStatus> => {
     return ipcRenderer.invoke('colab:detect-environment')
+  },
+
+  listColabConnections: (): Promise<ColabConnectionSummary[]> => {
+    return ipcRenderer.invoke('colab:list-connections')
+  },
+
+  addColabConnection: (request: AddColabConnectionRequest): Promise<ColabConnectionSummary> => {
+    return ipcRenderer.invoke('colab:add-connection', request)
   },
 
   openBlendProject: (): Promise<OpenBlendProjectResult | null> => {
