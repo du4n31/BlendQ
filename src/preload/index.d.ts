@@ -4,11 +4,14 @@ import type {
   BlenderInstallation,
   OpenBlendProjectResult,
   RenderEvent,
-  StartLocalRenderRequest
+  StartLocalRenderRequest,
+  ColabEnvironmentStatus
 } from '../shared/types'
 
 interface API {
   detectBlender: () => Promise<BlenderInstallation[]>
+
+  detectColabEnvironment: () => Promise<ColabEnvironmentStatus>
 
   openBlendProject: () => Promise<OpenBlendProjectResult | null>
 

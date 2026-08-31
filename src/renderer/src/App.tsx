@@ -6,7 +6,8 @@ import type {
   BlendProjectInfo,
   LocalWorkerSettings,
   RenderEvent,
-  RenderOutputMode
+  RenderOutputMode,
+  ColabEnvironmentStatus
 } from '../../shared/types'
 
 type BlenderStatus = 'loading' | 'success' | 'not-found' | 'error'
@@ -53,6 +54,29 @@ function App(): React.JSX.Element {
   const selectedScene = useMemo(() => {
     return projectInfo?.scenes.find((scene) => scene.name === selectedSceneName) ?? null
   }, [projectInfo, selectedSceneName])
+
+  const [colabStatus, setColabStatus] = useState<ColabEnvironmentStatus | null>(null)
+
+  const [colabDetecting, setColabDetecting] = useState(false)
+
+  async function detectColab(): Promise<void> {
+    setColabDetecting(true)
+
+    try {
+      const status = await window.api.detectColabEnvironment()
+
+      setColabStatus(status)
+    } catch (error) {
+      console.error('Failed to detect Google Colab CLI environment.', error)
+
+      setColabStatus({
+        state: 'error',
+        message: 'BlendQ could not detect the Google Colab CLI environment.'
+      })
+    } finally {
+      setColabDetecting(false)
+    }
+  }
 
   async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
     return window.api.detectBlender()
@@ -291,6 +315,44 @@ function App(): React.JSX.Element {
       </section>
 
       <section>
+        <h2>Google Colab CLI</h2>
+
+        <button type="button" onClick={detectColab} disabled={colabDetecting}>
+          {colabDetecting ? 'Checking...' : 'Check Colab CLI'}
+        </button>
+
+        {colabStatus === null && <p>Colab CLI has not been checked yet.</p>}
+
+        {colabStatus?.state === 'available' && (
+          <>
+            <p>Available</p>
+            <p>{colabStatus.version}</p>
+          </>
+        )}
+
+        {colabStatus?.state === 'cli-missing' && (
+          <>
+            <p>Not installed</p>
+            <p>{colabStatus.message}</p>
+          </>
+        )}
+
+        {colabStatus?.state === 'runner-unavailable' && (
+          <>
+            <p>Runtime unavailable</p>
+            <p>{colabStatus.message}</p>
+          </>
+        )}
+
+        {colabStatus?.state === 'error' && (
+          <>
+            <p>Detection failed</p>
+            <p>{colabStatus.message}</p>
+          </>
+        )}
+      </section>
+
+      <section>
         <h2>Project</h2>
 
         <button
@@ -445,9 +507,9 @@ function App(): React.JSX.Element {
                 </label>
 
                 <p>
-  BlendQ chooses a conservative local worker
-  count based on available system resources.
-</p>
+                  BlendQ chooses a conservative local worker count based on available system
+                  resources.
+                </p>
 
                 <label>
                   <input

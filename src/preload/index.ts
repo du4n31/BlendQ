@@ -5,12 +5,17 @@ import type {
   BlenderInstallation,
   OpenBlendProjectResult,
   RenderEvent,
-  StartLocalRenderRequest
+  StartLocalRenderRequest,
+  ColabEnvironmentStatus
 } from '../shared/types'
 
 const api = {
   detectBlender: (): Promise<BlenderInstallation[]> => {
     return ipcRenderer.invoke('blender:detect')
+  },
+
+  detectColabEnvironment: (): Promise<ColabEnvironmentStatus> => {
+    return ipcRenderer.invoke('colab:detect-environment')
   },
 
   openBlendProject: (): Promise<OpenBlendProjectResult | null> => {

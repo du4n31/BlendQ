@@ -24,6 +24,8 @@ import {
 } from './render/local-worker-settings'
 import { detectHostCapabilities } from './system/host-capabilities'
 import { recommendLocalConcurrency } from './render/local-concurrency-recommendation'
+import { createColabCommandRunner } from './colab/create-colab-command-runner'
+import { detectColabEnvironment } from './colab/colab-environment'
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -313,6 +315,12 @@ app.whenReady().then(() => {
     })
 
     return renderId
+  })
+
+  ipcMain.handle('colab:detect-environment', async (event) => {
+    assertTrustedSender(event)
+
+    return detectColabEnvironment(() => createColabCommandRunner())
   })
 
   createWindow()

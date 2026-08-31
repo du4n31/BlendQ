@@ -173,3 +173,21 @@ export type RenderEvent =
   | RenderFrameCompletedEvent
   | RenderJobCompletedEvent
   | RenderErrorEvent
+
+export type ColabEnvironmentStatus =
+  | {
+      state: 'available'
+      version: string
+    }
+  | {
+      state: 'cli-missing'
+      message: string
+    }
+  | {
+      state: 'runner-unavailable'
+      message: string
+    }
+  | {
+      state: 'error'
+      message: string
+    }
