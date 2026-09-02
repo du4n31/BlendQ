@@ -1,4 +1,10 @@
-import type { ColabCommandResult, ColabCommandRunner } from './colab-command-runner'
+import type {
+  ColabCommandExecutionOptions,
+  ColabCommandResult,
+  ColabCommandRunner,
+  ColabInteractiveCommand,
+  ColabInteractiveCommandOptions
+} from './colab-command-runner'
 
 import { WslService } from '../wsl/wsl-service'
 
@@ -7,8 +13,19 @@ export interface WslColabRunnerOptions {
   wslService?: WslService
 }
 
+function createEnvironmentArguments(environment: Readonly<Record<string, string>>): string[] {
+  return Object.entries(environment).map(([name, value]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(`Invalid environment variable name "${name}".`)
+    }
+
+    return `${name}=${value}`
+  })
+}
+
 export class WslColabRunner implements ColabCommandRunner {
   readonly #distribution: string
+
   readonly #wslService: WslService
 
   #executablePath: string | null = null
@@ -18,7 +35,7 @@ export class WslColabRunner implements ColabCommandRunner {
       throw new Error('WSL distribution name cannot be empty.')
     }
 
-    this.#distribution = options.distribution
+    this.#distribution = options.distribution.trim()
 
     this.#wslService = options.wslService ?? new WslService()
   }
@@ -54,13 +71,7 @@ export class WslColabRunner implements ColabCommandRunner {
     }
 
     try {
-      const executablePath = await this.#findExecutablePath()
-
-      if (!executablePath) {
-        return false
-      }
-
-      const result = await this.#wslService.execute(this.#distribution, executablePath, ['version'])
+      const result = await this.execute(['version'])
 
       return result.exitCode === 0
     } catch {
@@ -68,19 +79,48 @@ export class WslColabRunner implements ColabCommandRunner {
     }
   }
 
-  async execute(args: readonly string[]): Promise<ColabCommandResult> {
+  async execute(
+    args: readonly string[],
+    options: ColabCommandExecutionOptions = {}
+  ): Promise<ColabCommandResult> {
+    const command = await this.start(args, options)
+
+    command.closeStdin()
+
+    return command.result
+  }
+
+  async start(
+    args: readonly string[],
+    options: ColabInteractiveCommandOptions = {}
+  ): Promise<ColabInteractiveCommand> {
     const executablePath = await this.#findExecutablePath()
 
     if (!executablePath) {
       throw new Error('Google Colab CLI executable was not found in the WSL environment.')
     }
 
-    const result = await this.#wslService.execute(this.#distribution, executablePath, args)
+    const environment = options.environment
 
-    return {
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr
+    if (environment === undefined || Object.keys(environment).length === 0) {
+      return this.#wslService.start(this.#distribution, executablePath, args, {
+        onStdout: options.onStdout,
+
+        onStderr: options.onStderr
+      })
     }
+
+    const environmentArguments = createEnvironmentArguments(environment)
+
+    return this.#wslService.start(
+      this.#distribution,
+      'env',
+      [...environmentArguments, executablePath, ...args],
+      {
+        onStdout: options.onStdout,
+
+        onStderr: options.onStderr
+      }
+    )
   }
 }

@@ -7,7 +7,8 @@ import type {
   ColabEnvironmentStatus,
   OpenBlendProjectResult,
   RenderEvent,
-  StartLocalRenderRequest
+  StartLocalRenderRequest,
+  ColabAuthenticationEvent
 } from '../shared/types'
 
 interface API {
@@ -26,6 +27,14 @@ interface API {
   startLocalRender: (request: StartLocalRenderRequest) => Promise<string>
 
   onRenderEvent: (callback: (event: RenderEvent) => void) => () => void
+
+  startColabAuthentication: (connectionId: string) => Promise<void>
+
+  submitColabAuthorizationCode: (connectionId: string, code: string) => Promise<void>
+
+  cancelColabAuthentication: (connectionId: string) => Promise<void>
+
+  onColabAuthenticationEvent: (callback: (event: ColabAuthenticationEvent) => void) => () => void
 }
 
 declare global {

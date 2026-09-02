@@ -3,6 +3,7 @@ import { posix } from 'node:path'
 export interface ColabConnectionPaths {
   directory: string
   sessionConfigPath: string
+  authenticationHomeDirectory: string
 }
 
 export function createColabConnectionPaths(
@@ -23,6 +24,7 @@ export function createColabConnectionPaths(
 
   return {
     directory,
-    sessionConfigPath: posix.join(directory, 'sessions.json')
+    sessionConfigPath: posix.join(directory, 'sessions.json'),
+    authenticationHomeDirectory: posix.join(directory, 'home')
   }
 }

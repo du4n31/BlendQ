@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { toColabConnectionSummary } from './colab-connection-summary'
 
 describe('toColabConnectionSummary', () => {
-  it('does not expose internal session paths', () => {
+  it('does not expose internal connection paths', () => {
     const summary = toColabConnectionSummary({
       id: 'personal',
       displayName: 'Personal',
@@ -12,7 +12,8 @@ describe('toColabConnectionSummary', () => {
         type: 'wsl',
         distribution: 'Ubuntu-26.04'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
 
     expect(summary).toEqual({
@@ -26,5 +27,6 @@ describe('toColabConnectionSummary', () => {
     })
 
     expect('sessionConfigPath' in summary).toBe(false)
+    expect('authenticationHomeDirectory' in summary).toBe(false)
   })
 })

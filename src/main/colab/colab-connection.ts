@@ -15,6 +15,7 @@ export interface ColabConnection {
   authenticationStrategy: ColabAuthenticationStrategy
   runtime: ColabConnectionRuntime
   sessionConfigPath: string
+  authenticationHomeDirectory: string
 }
 
 export interface CreateColabConnectionOptions {
@@ -23,6 +24,7 @@ export interface CreateColabConnectionOptions {
   authenticationStrategy: ColabAuthenticationStrategy
   runtime: ColabConnectionRuntime
   sessionConfigPath: string
+  authenticationHomeDirectory: string
 }
 
 export function createColabConnection(options: CreateColabConnectionOptions): ColabConnection {
@@ -50,6 +52,12 @@ export function createColabConnection(options: CreateColabConnectionOptions): Co
     throw new Error('Colab session config path cannot be empty.')
   }
 
+  const authenticationHomeDirectory = options.authenticationHomeDirectory.trim()
+
+  if (authenticationHomeDirectory.length === 0) {
+    throw new Error('Colab authentication home directory cannot be empty.')
+  }
+
   if (options.runtime.type === 'wsl' && options.runtime.distribution.trim().length === 0) {
     throw new Error('WSL distribution name cannot be empty.')
   }
@@ -67,6 +75,7 @@ export function createColabConnection(options: CreateColabConnectionOptions): Co
         : {
             type: 'native'
           },
-    sessionConfigPath
+    sessionConfigPath,
+    authenticationHomeDirectory
   }
 }

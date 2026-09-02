@@ -6,14 +6,24 @@ describe('createColabConnectionPaths', () => {
   it('creates isolated paths for a connection', () => {
     expect(createColabConnectionPaths('/home/test', 'personal')).toEqual({
       directory: '/home/test/.config/blendq/colab/personal',
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
   })
 
+  it('isolates authentication homes between connections', () => {
+    const personal = createColabConnectionPaths('/home/test', 'personal')
+    const work = createColabConnectionPaths('/home/test', 'work')
+
+    expect(personal.authenticationHomeDirectory).not.toBe(work.authenticationHomeDirectory)
+  })
+
   it('supports macOS home directories', () => {
-    expect(createColabConnectionPaths('/Users/test', 'work').sessionConfigPath).toBe(
-      '/Users/test/.config/blendq/colab/work/sessions.json'
-    )
+    expect(createColabConnectionPaths('/Users/test', 'work')).toEqual({
+      directory: '/Users/test/.config/blendq/colab/work',
+      sessionConfigPath: '/Users/test/.config/blendq/colab/work/sessions.json',
+      authenticationHomeDirectory: '/Users/test/.config/blendq/colab/work/home'
+    })
   })
 
   it('normalizes trailing separators', () => {

@@ -7,7 +7,8 @@ import { detectColabEnvironment } from './colab-environment'
 function createMockRunner(): ColabCommandRunner {
   return {
     isAvailable: vi.fn(),
-    execute: vi.fn()
+    execute: vi.fn(),
+    start: vi.fn()
   }
 }
 

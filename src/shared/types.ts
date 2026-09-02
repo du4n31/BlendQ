@@ -214,3 +214,26 @@ export interface ColabConnectionSummary {
         distribution: string
       }
 }
+
+export type ColabAuthenticationEvent =
+  | {
+      type: 'authorization-started'
+      connectionId: string
+    }
+  | {
+      type: 'authorization-code-requested'
+      connectionId: string
+    }
+  | {
+      type: 'authenticated'
+      connectionId: string
+    }
+  | {
+      type: 'cancelled'
+      connectionId: string
+    }
+  | {
+      type: 'error'
+      connectionId: string
+      message: string
+    }

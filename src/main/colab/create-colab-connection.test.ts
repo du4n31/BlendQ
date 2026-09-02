@@ -31,7 +31,8 @@ describe('createManagedColabConnection', () => {
       runtime: {
         type: 'native'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
   })
 
@@ -59,7 +60,8 @@ describe('createManagedColabConnection', () => {
         type: 'wsl',
         distribution: 'Ubuntu-26.04'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
 
     expect(wslService.getHomeDirectory).toHaveBeenCalledWith('Ubuntu-26.04')

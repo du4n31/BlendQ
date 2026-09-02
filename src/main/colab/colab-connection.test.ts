@@ -11,7 +11,8 @@ describe('createColabConnection', () => {
       runtime: {
         type: 'native'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
 
     expect(connection).toEqual({
@@ -21,7 +22,8 @@ describe('createColabConnection', () => {
       runtime: {
         type: 'native'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
   })
 
@@ -34,7 +36,8 @@ describe('createColabConnection', () => {
         type: 'wsl',
         distribution: 'Ubuntu-26.04'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/personal/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/personal/home'
     })
 
     expect(connection.runtime).toEqual({
@@ -51,7 +54,8 @@ describe('createColabConnection', () => {
       runtime: {
         type: 'native'
       },
-      sessionConfigPath: '/home/test/.config/blendq/colab/work/sessions.json'
+      sessionConfigPath: '/home/test/.config/blendq/colab/work/sessions.json',
+      authenticationHomeDirectory: '/home/test/.config/blendq/colab/work/home'
     })
 
     expect(connection.authenticationStrategy).toBe('adc')
@@ -66,7 +70,8 @@ describe('createColabConnection', () => {
         runtime: {
           type: 'native'
         },
-        sessionConfigPath: '/tmp/sessions.json'
+        sessionConfigPath: '/tmp/sessions.json',
+        authenticationHomeDirectory: '/tmp/colab-home'
       })
     ).toThrow('Colab connection ID cannot be empty.')
   })
@@ -80,7 +85,8 @@ describe('createColabConnection', () => {
         runtime: {
           type: 'native'
         },
-        sessionConfigPath: '/tmp/sessions.json'
+        sessionConfigPath: '/tmp/sessions.json',
+        authenticationHomeDirectory: '/tmp/colab-home'
       })
     ).toThrow('Colab connection display name cannot be empty.')
   })
@@ -94,9 +100,25 @@ describe('createColabConnection', () => {
         runtime: {
           type: 'native'
         },
-        sessionConfigPath: ''
+        sessionConfigPath: '',
+        authenticationHomeDirectory: '/tmp/colab-home'
       })
     ).toThrow('Colab session config path cannot be empty.')
+  })
+
+  it('rejects an empty authentication home directory', () => {
+    expect(() =>
+      createColabConnection({
+        id: 'personal',
+        displayName: 'Personal',
+        authenticationStrategy: 'oauth2',
+        runtime: {
+          type: 'native'
+        },
+        sessionConfigPath: '/tmp/sessions.json',
+        authenticationHomeDirectory: ''
+      })
+    ).toThrow('Colab authentication home directory cannot be empty.')
   })
 
   it('rejects an empty WSL distribution', () => {
@@ -109,7 +131,8 @@ describe('createColabConnection', () => {
           type: 'wsl',
           distribution: ' '
         },
-        sessionConfigPath: '/tmp/sessions.json'
+        sessionConfigPath: '/tmp/sessions.json',
+        authenticationHomeDirectory: '/tmp/colab-home'
       })
     ).toThrow('WSL distribution name cannot be empty.')
   })
@@ -123,7 +146,8 @@ describe('createColabConnection', () => {
         runtime: {
           type: 'native'
         },
-        sessionConfigPath: '/tmp/sessions.json'
+        sessionConfigPath: '/tmp/sessions.json',
+        authenticationHomeDirectory: '/tmp/colab-home'
       })
     ).toThrow(
       'Colab connection ID must contain only lowercase letters, numbers, hyphens, and underscores.'

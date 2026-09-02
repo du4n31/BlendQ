@@ -53,7 +53,20 @@ import { createPlatformColabConnection } from './colab/create-platform-colab-con
 
 import { toColabConnectionSummary } from './colab/colab-connection-summary'
 
+import { ColabAuthenticationFlow } from './colab/colab-authentication-flow'
+
+import { createColabClient } from './colab/create-colab-client'
+
+import { validateColabAuthorizationUrl } from './colab/colab-authorization-url'
+
 const colabConnectionManager = new ColabConnectionManager()
+
+interface ActiveColabAuthentication {
+  flow: ColabAuthenticationFlow
+  cancelled: boolean
+}
+
+const activeColabAuthentications = new Map<string, ActiveColabAuthentication>()
 
 function isTrustedSender(frame: WebFrameMain | null): boolean {
   if (!frame) {
@@ -105,6 +118,38 @@ function validateAddColabConnectionRequest(value: unknown): AddColabConnectionRe
 
     authenticationStrategy: request.authenticationStrategy
   }
+}
+
+function validateColabConnectionId(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Invalid Colab connection ID.')
+  }
+
+  const connectionId = value.trim()
+
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(connectionId)) {
+    throw new Error('Invalid Colab connection ID.')
+  }
+
+  return connectionId
+}
+
+function validateAuthorizationCode(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Invalid authorization code.')
+  }
+
+  const code = value.trim()
+
+  if (code.length === 0) {
+    throw new Error('Authorization code cannot be empty.')
+  }
+
+  if (code.length > 4096) {
+    throw new Error('Authorization code is too long.')
+  }
+
+  return code
 }
 
 async function validateStartLocalRenderRequest(value: unknown): Promise<StartLocalRenderRequest> {
@@ -286,6 +331,200 @@ app.whenReady().then(() => {
     colabConnectionManager.add(connection)
 
     return toColabConnectionSummary(connection)
+  })
+
+  ipcMain.handle('colab:start-authentication', async (event, value: unknown) => {
+    assertTrustedSender(event)
+
+    const connectionId = validateColabConnectionId(value)
+
+    const connection = colabConnectionManager.get(connectionId)
+
+    if (!connection) {
+      throw new Error(`Colab connection "${connectionId}" was not found.`)
+    }
+
+    if (connection.authenticationStrategy !== 'oauth2') {
+      throw new Error(
+        'Interactive Google authentication is only available for OAuth 2.0 connections.'
+      )
+    }
+
+    if (activeColabAuthentications.has(connectionId)) {
+      throw new Error('Colab authentication is already in progress for this connection.')
+    }
+
+    const client = createColabClient({
+      connection
+    })
+
+    const flow = new ColabAuthenticationFlow(client)
+
+    const authentication: ActiveColabAuthentication = {
+      flow,
+      cancelled: false
+    }
+
+    activeColabAuthentications.set(connectionId, authentication)
+
+    const sender = event.sender
+
+    const sendAuthenticationEvent = (authenticationEvent: unknown): void => {
+      if (!sender.isDestroyed()) {
+        sender.send('colab:authentication-event', authenticationEvent)
+      }
+    }
+
+    sendAuthenticationEvent({
+      type: 'authorization-started',
+      connectionId
+    })
+
+    try {
+      await flow.start({
+        onAuthorizationUrl: (rawUrl) => {
+          let authorizationUrl: string
+
+          try {
+            authorizationUrl = validateColabAuthorizationUrl(rawUrl)
+          } catch (error) {
+            authentication.cancelled = true
+
+            flow.cancel()
+
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'Colab returned an invalid authorization URL.'
+
+            sendAuthenticationEvent({
+              type: 'error',
+              connectionId,
+              message
+            })
+
+            return
+          }
+
+          void shell.openExternal(authorizationUrl).catch((error: unknown) => {
+            authentication.cancelled = true
+
+            flow.cancel()
+
+            console.error('Failed to open the Colab authorization page.', error)
+
+            sendAuthenticationEvent({
+              type: 'error',
+              connectionId,
+              message: 'BlendQ could not open the Google authorization page.'
+            })
+          })
+        },
+
+        onAuthorizationCodeRequested: () => {
+          if (authentication.cancelled) {
+            return
+          }
+
+          sendAuthenticationEvent({
+            type: 'authorization-code-requested',
+            connectionId
+          })
+        }
+      })
+    } catch (error) {
+      activeColabAuthentications.delete(connectionId)
+
+      throw error
+    }
+
+    void flow
+      .waitForResult()
+      .then((result) => {
+        const active = activeColabAuthentications.get(connectionId)
+
+        if (active !== authentication || authentication.cancelled) {
+          return
+        }
+
+        activeColabAuthentications.delete(connectionId)
+
+        if (result.exitCode === 0) {
+          sendAuthenticationEvent({
+            type: 'authenticated',
+            connectionId
+          })
+
+          return
+        }
+
+        sendAuthenticationEvent({
+          type: 'error',
+          connectionId,
+          message: result.stderr.trim() || 'Google Colab authentication failed.'
+        })
+      })
+      .catch((error: unknown) => {
+        const active = activeColabAuthentications.get(connectionId)
+
+        if (active !== authentication || authentication.cancelled) {
+          return
+        }
+
+        activeColabAuthentications.delete(connectionId)
+
+        console.error('Google Colab authentication failed.', error)
+
+        sendAuthenticationEvent({
+          type: 'error',
+          connectionId,
+          message: error instanceof Error ? error.message : 'Google Colab authentication failed.'
+        })
+      })
+  })
+
+  ipcMain.handle(
+    'colab:submit-authorization-code',
+    (event, connectionValue: unknown, codeValue: unknown) => {
+      assertTrustedSender(event)
+
+      const connectionId = validateColabConnectionId(connectionValue)
+
+      const code = validateAuthorizationCode(codeValue)
+
+      const authentication = activeColabAuthentications.get(connectionId)
+
+      if (!authentication) {
+        throw new Error('No Colab authentication is in progress for this connection.')
+      }
+
+      authentication.flow.submitAuthorizationCode(code)
+    }
+  )
+
+  ipcMain.handle('colab:cancel-authentication', (event, value: unknown) => {
+    assertTrustedSender(event)
+
+    const connectionId = validateColabConnectionId(value)
+
+    const authentication = activeColabAuthentications.get(connectionId)
+
+    if (!authentication) {
+      return
+    }
+
+    authentication.cancelled = true
+
+    authentication.flow.cancel()
+
+    activeColabAuthentications.delete(connectionId)
+
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('colab:authentication-event', {
+        type: 'cancelled',
+        connectionId
+      })
+    }
   })
 
   ipcMain.handle('project:open', async (event) => {

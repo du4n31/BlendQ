@@ -9,7 +9,8 @@ import type {
   ColabEnvironmentStatus,
   OpenBlendProjectResult,
   RenderEvent,
-  StartLocalRenderRequest
+  StartLocalRenderRequest,
+  ColabAuthenticationEvent
 } from '../shared/types'
 
 const api = {
@@ -50,6 +51,35 @@ const api = {
 
     return () => {
       ipcRenderer.removeListener('render:event', listener)
+    }
+  },
+
+  startColabAuthentication: (connectionId: string): Promise<void> => {
+    return ipcRenderer.invoke('colab:start-authentication', connectionId)
+  },
+
+  submitColabAuthorizationCode: (connectionId: string, code: string): Promise<void> => {
+    return ipcRenderer.invoke('colab:submit-authorization-code', connectionId, code)
+  },
+
+  cancelColabAuthentication: (connectionId: string): Promise<void> => {
+    return ipcRenderer.invoke('colab:cancel-authentication', connectionId)
+  },
+
+  onColabAuthenticationEvent: (
+    callback: (event: ColabAuthenticationEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      authenticationEvent: ColabAuthenticationEvent
+    ): void => {
+      callback(authenticationEvent)
+    }
+
+    ipcRenderer.on('colab:authentication-event', listener)
+
+    return () => {
+      ipcRenderer.removeListener('colab:authentication-event', listener)
     }
   }
 }

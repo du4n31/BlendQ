@@ -11,7 +11,8 @@ function createConnection(id: string): ColabConnection {
     runtime: {
       type: 'native'
     },
-    sessionConfigPath: `/home/test/.config/blendq/colab/${id}/sessions.json`
+    sessionConfigPath: `/home/test/.config/blendq/colab/${id}/sessions.json`,
+    authenticationHomeDirectory: `/home/test/.config/blendq/colab/${id}/home`
   }
 }
 
@@ -30,7 +31,6 @@ describe('ColabConnectionManager', () => {
     const manager = new ColabConnectionManager()
 
     const personal = createConnection('personal')
-
     const work = createConnection('work')
 
     manager.add(personal)
@@ -61,7 +61,6 @@ describe('ColabConnectionManager', () => {
     manager.add(createConnection('personal'))
 
     expect(manager.remove('personal')).toBe(true)
-
     expect(manager.get('personal')).toBeNull()
   })
 
@@ -75,7 +74,6 @@ describe('ColabConnectionManager', () => {
     const manager = new ColabConnectionManager()
 
     manager.add(createConnection('personal'))
-
     manager.add(createConnection('work'))
 
     manager.clear()

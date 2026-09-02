@@ -4,6 +4,7 @@ import type {
   BlenderInstallation,
   BlendProjectFile,
   BlendProjectInfo,
+  ColabAuthenticationEvent,
   ColabAuthenticationStrategy,
   ColabConnectionSummary,
   ColabEnvironmentStatus,
@@ -17,6 +18,15 @@ type BlenderStatus = 'loading' | 'success' | 'not-found' | 'error'
 type ProjectStatus = 'idle' | 'loading' | 'success' | 'error'
 
 type RenderStatus = 'idle' | 'running' | 'completed' | 'error'
+
+type ColabConnectionAuthenticationState =
+  'idle' | 'starting' | 'waiting-for-code' | 'submitting' | 'authenticated' | 'error'
+
+interface ColabAuthenticationUiState {
+  state: ColabConnectionAuthenticationState
+  code: string
+  message: string | null
+}
 
 function App(): React.JSX.Element {
   const [blenderInstallations, setBlenderInstallations] = useState<BlenderInstallation[]>([])
@@ -40,6 +50,10 @@ function App(): React.JSX.Element {
   const [addingColabConnection, setAddingColabConnection] = useState(false)
 
   const [colabConnectionError, setColabConnectionError] = useState<string | null>(null)
+
+  const [colabAuthenticationStates, setColabAuthenticationStates] = useState<
+    Record<string, ColabAuthenticationUiState>
+  >({})
 
   const [selectedProject, setSelectedProject] = useState<BlendProjectFile | null>(null)
 
@@ -73,6 +87,38 @@ function App(): React.JSX.Element {
     return projectInfo?.scenes.find((scene) => scene.name === selectedSceneName) ?? null
   }, [projectInfo, selectedSceneName])
 
+  function getColabAuthenticationState(connectionId: string): ColabAuthenticationUiState {
+    return (
+      colabAuthenticationStates[connectionId] ?? {
+        state: 'idle',
+        code: '',
+        message: null
+      }
+    )
+  }
+
+  function updateColabAuthenticationState(
+    connectionId: string,
+    update: Partial<ColabAuthenticationUiState>
+  ): void {
+    setColabAuthenticationStates((current) => {
+      const existing = current[connectionId] ?? {
+        state: 'idle' as const,
+        code: '',
+        message: null
+      }
+
+      return {
+        ...current,
+
+        [connectionId]: {
+          ...existing,
+          ...update
+        }
+      }
+    })
+  }
+
   async function loadBlenderInstallations(): Promise<BlenderInstallation[]> {
     return window.api.detectBlender()
   }
@@ -92,6 +138,16 @@ function App(): React.JSX.Element {
       })
 
       setColabConnections((connections) => [...connections, connection])
+
+      setColabAuthenticationStates((current) => ({
+        ...current,
+
+        [connection.id]: {
+          state: 'idle',
+          code: '',
+          message: null
+        }
+      }))
     } catch (error) {
       console.error('Failed to add Colab connection.', error)
 
@@ -100,6 +156,63 @@ function App(): React.JSX.Element {
       )
     } finally {
       setAddingColabConnection(false)
+    }
+  }
+
+  async function connectColabConnection(connectionId: string): Promise<void> {
+    updateColabAuthenticationState(connectionId, {
+      state: 'starting',
+      code: '',
+      message: null
+    })
+
+    try {
+      await window.api.startColabAuthentication(connectionId)
+    } catch (error) {
+      console.error('Failed to start Google Colab authentication.', error)
+
+      updateColabAuthenticationState(connectionId, {
+        state: 'error',
+
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Google Colab authentication could not be started.'
+      })
+    }
+  }
+
+  async function submitColabAuthorizationCode(connectionId: string): Promise<void> {
+    const state = getColabAuthenticationState(connectionId)
+
+    updateColabAuthenticationState(connectionId, {
+      state: 'submitting',
+      message: null
+    })
+
+    try {
+      await window.api.submitColabAuthorizationCode(connectionId, state.code)
+
+      updateColabAuthenticationState(connectionId, {
+        code: ''
+      })
+    } catch (error) {
+      console.error('Failed to submit the Google authorization code.', error)
+
+      updateColabAuthenticationState(connectionId, {
+        state: 'waiting-for-code',
+
+        message:
+          error instanceof Error ? error.message : 'The authorization code could not be submitted.'
+      })
+    }
+  }
+
+  async function cancelColabAuthentication(connectionId: string): Promise<void> {
+    try {
+      await window.api.cancelColabAuthentication(connectionId)
+    } catch (error) {
+      console.error('Failed to cancel Google Colab authentication.', error)
     }
   }
 
@@ -320,6 +433,62 @@ function App(): React.JSX.Element {
     return unsubscribe
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = window.api.onColabAuthenticationEvent((event: ColabAuthenticationEvent) => {
+      if (event.type === 'authorization-started') {
+        updateColabAuthenticationState(event.connectionId, {
+          state: 'starting',
+
+          message: 'Complete authorization in your browser.'
+        })
+
+        return
+      }
+
+      if (event.type === 'authorization-code-requested') {
+        updateColabAuthenticationState(event.connectionId, {
+          state: 'waiting-for-code',
+
+          message: 'Paste the authorization code displayed by Google.'
+        })
+
+        return
+      }
+
+      if (event.type === 'authenticated') {
+        updateColabAuthenticationState(event.connectionId, {
+          state: 'authenticated',
+
+          code: '',
+
+          message: 'Connected'
+        })
+
+        return
+      }
+
+      if (event.type === 'cancelled') {
+        updateColabAuthenticationState(event.connectionId, {
+          state: 'idle',
+          code: '',
+          message: null
+        })
+
+        return
+      }
+
+      updateColabAuthenticationState(event.connectionId, {
+        state: 'error',
+
+        code: '',
+
+        message: event.message
+      })
+    })
+
+    return unsubscribe
+  }, [])
+
   function handleSceneChange(sceneName: string): void {
     setSelectedSceneName(sceneName)
 
@@ -426,24 +595,101 @@ function App(): React.JSX.Element {
           <p>No Colab connections have been added.</p>
         ) : (
           <ul>
-            {colabConnections.map((connection) => (
-              <li key={connection.id}>
-                <strong>{connection.displayName}</strong>
+            {colabConnections.map((connection) => {
+              const authentication = getColabAuthenticationState(connection.id)
 
-                <p>ID: {connection.id}</p>
+              return (
+                <li key={connection.id}>
+                  <strong>{connection.displayName}</strong>
 
-                <p>Authentication: {connection.authenticationStrategy}</p>
+                  <p>ID: {connection.id}</p>
 
-                <p>
-                  Runtime:{' '}
-                  {connection.runtime.type === 'wsl'
-                    ? `WSL — ${connection.runtime.distribution}`
-                    : 'Native'}
-                </p>
+                  <p>Authentication: {connection.authenticationStrategy}</p>
 
-                <p>Not authenticated yet</p>
-              </li>
-            ))}
+                  <p>
+                    Runtime:{' '}
+                    {connection.runtime.type === 'wsl'
+                      ? `WSL — ${connection.runtime.distribution}`
+                      : 'Native'}
+                  </p>
+
+                  {authentication.state === 'authenticated' ? (
+                    <p>Connected</p>
+                  ) : (
+                    <p>Authentication required</p>
+                  )}
+
+                  {authentication.message && <p>{authentication.message}</p>}
+
+                  {connection.authenticationStrategy === 'oauth2' &&
+                    authentication.state === 'idle' && (
+                      <button
+                        type="button"
+                        onClick={() => void connectColabConnection(connection.id)}
+                      >
+                        Connect
+                      </button>
+                    )}
+
+                  {authentication.state === 'starting' && (
+                    <button
+                      type="button"
+                      onClick={() => void cancelColabAuthentication(connection.id)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+
+                  {authentication.state === 'waiting-for-code' && (
+                    <>
+                      <div>
+                        <label htmlFor={`colab-authorization-code-${connection.id}`}>
+                          Authorization Code
+                        </label>
+
+                        <input
+                          id={`colab-authorization-code-${connection.id}`}
+                          type="password"
+                          value={authentication.code}
+                          autoComplete="off"
+                          onChange={(event) =>
+                            updateColabAuthenticationState(connection.id, {
+                              code: event.target.value
+                            })
+                          }
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={authentication.code.trim().length === 0}
+                        onClick={() => void submitColabAuthorizationCode(connection.id)}
+                      >
+                        Complete Authorization
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => void cancelColabAuthentication(connection.id)}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+
+                  {authentication.state === 'submitting' && <p>Completing authorization...</p>}
+
+                  {authentication.state === 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => void connectColabConnection(connection.id)}
+                    >
+                      Try Again
+                    </button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
 

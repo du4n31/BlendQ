@@ -43,6 +43,7 @@ export async function createManagedColabConnection(
     displayName: options.displayName,
     authenticationStrategy: options.authenticationStrategy,
     runtime: options.runtime,
-    sessionConfigPath: paths.sessionConfigPath
+    sessionConfigPath: paths.sessionConfigPath,
+    authenticationHomeDirectory: paths.authenticationHomeDirectory
   })
 }
